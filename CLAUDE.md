@@ -1,6 +1,6 @@
 # Contrail — Project Brief
 
-> Working title. Rename freely; just keep it original (see Hard Rules).
+> Working title. Rename freely.
 
 ## 1. What we're building
 
@@ -28,7 +28,7 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 - **Airports:** OurAirports (public domain), filtered to `large_airport` + `medium_airport` with scheduled service and an IATA code. Bundle it as compact JSON (iata, name, city, country, lat, lon).
 - **Audio:** Web Audio API only. Generate every sound in code (engine hum, rain, cabin chime, paper tear, seatbelt click, radar blip, stamp thud), so there are no licensed sound files.
 - **Storage:** IndexedDB, local-first. M4 adds Firebase Auth (Google sign-in) + Firestore sync with last-write-wins on each flight record.
-- **PWA:** manifest, original app icon, and a service worker for offline use of everything except the Google 3D mode.
+- **PWA:** manifest, app icon, and a service worker for offline use of everything except the Google 3D mode.
 
 ## 4. Core flow and features
 
@@ -49,7 +49,7 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 | Business | No pause. If the app stays hidden for more than **10 s** (`visibilitychange`), the flight is **Diverted** (logged as incomplete, still earns the miles flown so far, with a gentle message, not a punishment). |
 | First | Business rules plus: Screen Wake Lock, fullscreen, ambience starts automatically. |
 
-- Seat picker: a top-down cabin view in an **original style**. Picking a seat plays a seatbelt click and haptic.
+- Seat picker: a top-down cabin view. Picking a seat plays a seatbelt click and haptic.
 
 ### 4.3 Purpose tags
 - Defaults: `CFA L1`, `FMVA`, `NEU`, `Waasee`, `Reading`, `Deep Work`. Henry can add, rename, recolor and reorder tags.
@@ -74,7 +74,7 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 - **First visit to a city** unlocks it: it gets a new stamp design, and the city's marker changes from a dashed outline to filled on every future globe.
 
 ### 4.7 Logbook (passport)
-- Passport-style pages with a page-turn interaction (original styling).
+- Passport-style pages with a page-turn interaction.
 - Stamp collection grid. Stats: total hours, total **miles** (km toggle), flights, unlocked cities, current streak.
 - **Heatmap** of focus minutes per day (last 12 months), filterable by tag.
 - Flight list with each pass archived. Export and import JSON as a backup, available even before Firebase.
@@ -82,13 +82,13 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 ### 4.8 Cockpit mode (tablet)
 - When the device is landscape **and** charging (Battery API), offer a dim red night-instrument clock screen showing the current flight's progress.
 
-## 5. Visual direction: "Night Cabin" (original)
+## 5. Visual direction: "Night Cabin"
 
 - **Mood:** a quiet long-haul night flight. Deep blue-black cabin, warm amber reading-light accents, ivory/cream paper for passes and stamps, with a small, sparing signal colour for alerts.
 - **Typography:** choose a characterful display face for codes and numbers (a departure-board or ticket feel), a calm readable body face, and a monospace for flight data. Use Google Fonts, avoid Inter/Space Grotesk, and record the choices as CSS tokens.
 - **Themes:** the night palette is the default. A day palette switches in automatically by local time (or by a manual toggle).
 - **Motion:** slow and deliberate. Use spring physics for physical objects (stubs, tags, stamps). Respect `prefers-reduced-motion`.
-- All icons, illustrations and the app icon are drawn from scratch, as SVG or canvas.
+- Icons, illustrations and the app icon are drawn in code (SVG or canvas); no third-party icon or image files.
 
 ### 5.1 Design principles (added by Henry after M2)
 
