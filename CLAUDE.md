@@ -15,11 +15,10 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 
 ## 2. Hard rules
 
-1. **Original design only.** This app shares a genre with FocusFlight (iOS), but you must not copy its name, logo, icons, illustrations, screenshots, colors, layouts or sounds. Don't look up FocusFlight screenshots for reference. The interaction ideas below (time-to-distance radar, tear-to-start, seat-class strictness, stamps) are generic mechanics. Give each its own visual treatment.
-2. **UI copy is in English.** Talk to Henry in **Vietnamese** (chat, progress updates, questions).
-3. **Static site, no backend server.** Firebase (Auth + Firestore) is the only cloud service. Ask Henry before adding anything that costs money.
-4. **Secrets:** the Google Maps API key and Firebase web config are client-side by design. They go in `config.js`, and they are only safe because of the referrer restriction and the Firestore security rules. Never commit anything else secret.
-5. **Small, working increments.** After every milestone, deploy to Pages, give Henry the link and say what to test on which device. **Stop at the end of M1 and wait for his feedback** before continuing.
+1. **UI copy is in English.** Talk to Henry in **Vietnamese** (chat, progress updates, questions).
+2. **Static site, no backend server.** Firebase (Auth + Firestore) is the only cloud service. Ask Henry before adding anything that costs money.
+3. **Secrets:** the Google Maps API key and Firebase web config are client-side by design. They go in `config.js`, and they are only safe because of the referrer restriction and the Firestore security rules. Never commit anything else secret.
+4. **Small, working increments.** After every milestone, deploy to Pages, give Henry the link and say what to test on which device. **Stop at the end of M1 and wait for his feedback** before continuing.
 
 ## 3. Tech stack (suggested; adjust if you have a strong reason)
 
