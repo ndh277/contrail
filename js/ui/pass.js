@@ -13,6 +13,24 @@ const TEAR_AT = 118;          // px of pull before the paper gives way
 const time = (d) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const day = (d) => d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase();
 
+const EMBLEM = `<svg class="pass-emblem" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19 C 8 13, 12 9, 18.5 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".55"/><path d="M22 4.5 L15.5 4.8 L17.4 7.2 L16.4 10.2Z" fill="currentColor"/></svg>`;
+
+/** Security-print style wave lines — unique per pass. */
+function guilloche(seed) {
+  const r = rng(seed);
+  const paths = [];
+  for (let k = 0; k < 7; k++) {
+    const amp = 6 + r() * 10, freq = 0.02 + r() * 0.025, ph = r() * 6.28, y0 = 30 + k * 26;
+    let d = "";
+    for (let x = 0; x <= 360; x += 6) {
+      const y = y0 + Math.sin(x * freq + ph) * amp + Math.sin(x * freq * 2.7 + ph * 1.3) * amp * 0.35;
+      d += `${x ? "L" : "M"}${x} ${y.toFixed(1)}`;
+    }
+    paths.push(`<path d="${d}"/>`);
+  }
+  return `<svg class="guilloche" viewBox="0 0 360 220" preserveAspectRatio="none" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="0.7">${paths.join("")}</g></svg>`;
+}
+
 export function flightNumber(origin, dest) {
   return `CT ${100 + (hash(origin + dest) % 900)}`;
 }
@@ -52,39 +70,50 @@ export class BoardingPass {
   render() {
     const f = this.flight;
     const cls = CLASSES[f.cls].name;
+    const h = hash(f.flightNo + f.seat);
+    f.gate = `${"ABCDE"[h % 5]}${1 + ((h >>> 3) % 28)}`;
+    f.group = f.cls === "first" ? "1" : f.cls === "business" ? "2" : String(3 + ((h >>> 7) % 3));
     this.$("#pass-paper").innerHTML = `
       <div class="pass" style="--tag:${esc(f.tag.color)}">
         <div class="pass-main">
+          ${guilloche(h)}
           <div class="pass-head">
-            <span class="pass-airline">CONTRAIL</span>
+            <span class="pass-brand">${EMBLEM}<span class="pass-airline">CONTRAIL</span></span>
             <span class="pass-kind">Boarding pass</span>
           </div>
           <div class="pass-route">
             <div class="pass-port"><span class="pass-code">${f.origin.iata}</span><span class="pass-city">${esc(f.origin.city)}</span></div>
             <div class="pass-arc" aria-hidden="true">
-              <svg viewBox="0 0 100 34"><path d="M4 30 Q50 -6 96 30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="3 3"/><path d="M50 4 l6 3 -6 3 1.6 -3z" fill="currentColor"/></svg>
+              <svg viewBox="0 0 100 34"><path d="M4 30 Q50 -6 96 30" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2.5 3"/><circle cx="4" cy="30" r="2.2" fill="currentColor"/><circle cx="96" cy="30" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/><g transform="translate(50 12) rotate(0)"><path d="M7 0 L-4 -4.5 L-2 0 L-4 4.5Z" fill="currentColor"/></g></svg>
               <span>${formatDuration(f.durationMin)}</span>
+              <small>${Math.round(f.distKm).toLocaleString("en-US")} km</small>
             </div>
             <div class="pass-port is-dest"><span class="pass-code">${f.dest.iata}</span><span class="pass-city">${esc(f.dest.city)}</span></div>
           </div>
           <dl class="pass-grid">
-            <div class="wide"><dt>Passenger</dt><dd>HENRY NGUYEN</dd></div>
+            <div class="span2"><dt>Passenger</dt><dd>HENRY NGUYEN</dd></div>
             <div><dt>Flight</dt><dd>${f.flightNo}</dd></div>
             <div><dt>Date</dt><dd data-f="date">${day(new Date())}</dd></div>
-            <div><dt>Boarding</dt><dd data-f="dep">${time(new Date())}</dd></div>
-            <div><dt>ETA</dt><dd data-f="eta"></dd></div>
+            <div><dt>Gate</dt><dd class="big">${f.gate}</dd></div>
+            <div><dt>Group</dt><dd class="big">${f.group}</dd></div>
+            <div><dt>Departs</dt><dd data-f="dep">${time(new Date())}</dd></div>
+            <div><dt>Arrives</dt><dd data-f="eta"></dd></div>
             <div><dt>Seat</dt><dd class="big">${f.seat}</dd></div>
             <div><dt>Class</dt><dd>${cls.toUpperCase()}</dd></div>
             <div><dt>Purpose</dt><dd><span class="pass-tag">${esc(f.tag.name)}</span></dd></div>
-            <div><dt>Route scale</dt><dd>${f.scale}×</dd></div>
+            <div><dt>Scale</dt><dd>${f.scale}×</dd></div>
           </dl>
         </div>
-        <div class="perforation" aria-hidden="true"><span class="notch l"></span><span class="rip"></span><span class="notch r"></span></div>
+        <div class="perforation" aria-hidden="true"><span class="rip"></span></div>
         <div class="pass-stub" id="pass-stub" role="button" tabindex="0" aria-label="Tear off the stub to depart">
           <div class="stub-row">
-            <div><span class="stub-codes">${f.origin.iata} → ${f.dest.iata}</span><span class="stub-meta">${f.flightNo} · SEAT ${f.seat} · ${cls.toUpperCase()}</span></div>
+            <div class="stub-text">
+              <span class="stub-codes">${f.origin.iata}<i>→</i>${f.dest.iata}</span>
+              <span class="stub-meta">${f.flightNo} · GATE ${f.gate} · SEAT ${f.seat}</span>
+            </div>
             ${barcode(f.flightNo + f.seat)}
           </div>
+          <span class="stub-pull" aria-hidden="true">Pull to depart</span>
         </div>
       </div>`;
     this.updateTimes();
@@ -118,7 +147,13 @@ export class BoardingPass {
       // stepped feed with a little settle per step — like a thermal printer
       paper.style.setProperty("--feed", String(i / steps));
       if (i < steps) setTimeout(feed, dur / steps);
-      else { paper.classList.add("is-printed"); setTimeout(() => hint.classList.add("is-on"), 350); }
+      else {
+        paper.classList.add("is-printed");
+        // the freshly printed paper sways a little before it settles
+        const sway = new Spring({ stiffness: 90, damping: 5, onUpdate: (v) => paper.style.setProperty("--sway", `${v}deg`) });
+        sway.impulse(14);
+        setTimeout(() => hint.classList.add("is-on"), 350);
+      }
     };
     setTimeout(feed, 120);
   }

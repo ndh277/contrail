@@ -14,6 +14,7 @@ const DEFAULTS = {
   units: "mi",            // mi | km (logbook)
   lastTagId: null,
   lastDuration: 25,
+  hubsOnly: false,
 };
 
 export const TAG_COLORS = [

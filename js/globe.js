@@ -11,10 +11,12 @@ export { THREE };
 
 const dayNightVertex = /* glsl */ `
   varying vec3 vWorldNormal;
+  varying vec3 vWorldPos;
   varying vec2 vUv;
   void main() {
     vUv = uv;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -25,9 +27,11 @@ const dayNightFragment = /* glsl */ `
   uniform vec3 sunDirection;
   uniform float cityLights;
   varying vec3 vWorldNormal;
+  varying vec3 vWorldPos;
   varying vec2 vUv;
   void main() {
     vec3 n = normalize(vWorldNormal);
+    vec3 viewDir = normalize(cameraPosition - vWorldPos);
     float cosSun = dot(n, sunDirection);
     vec3 day = texture2D(dayTexture, vUv).rgb;
     vec3 night = texture2D(nightTexture, vUv).rgb;
@@ -48,6 +52,16 @@ const dayNightFragment = /* glsl */ `
     // a warm band hugging the terminator
     float band = exp(-pow(cosSun / 0.07, 2.0));
     color += vec3(1.0, 0.52, 0.22) * band * 0.10;
+
+    // sun glint on open water (water = blue-dominant pixels of the day map)
+    float water = smoothstep(0.04, 0.16, day.b - max(day.r, day.g) * 0.95);
+    vec3 halfV = normalize(sunDirection + viewDir);
+    float spec = pow(max(dot(n, halfV), 0.0), 70.0) * 0.55 + pow(max(dot(n, halfV), 0.0), 12.0) * 0.06;
+    color += vec3(1.0, 0.93, 0.8) * spec * water * smoothstep(0.0, 0.2, cosSun);
+
+    // thin blue haze towards the limb on the day side
+    float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+    color = mix(color, vec3(0.45, 0.65, 1.0), rim * 0.45 * smoothstep(-0.15, 0.4, cosSun));
 
     gl_FragColor = vec4(color, 1.0);
   }
@@ -144,16 +158,72 @@ const pointsFragment = /* glsl */ `
 
 const trailVertex = /* glsl */ `
   attribute float aAlpha;
+  attribute float aSide;
   varying float vAlpha;
+  varying float vSide;
   void main() {
     vAlpha = aAlpha;
+    vSide = aSide;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 const trailFragment = /* glsl */ `
   uniform vec3 uColor;
   varying float vAlpha;
-  void main() { gl_FragColor = vec4(uColor, vAlpha); }
+  varying float vSide;
+  void main() {
+    float soft = exp(-vSide * vSide * 3.2);
+    float core = exp(-vSide * vSide * 40.0) * 0.5;
+    gl_FragColor = vec4(uColor, vAlpha * (soft + core));
+  }
+`;
+
+const starsVertex = /* glsl */ `
+  attribute float aSize;
+  attribute float aPhase;
+  uniform float uTime;
+  uniform float uPx;
+  varying float vTw;
+  void main() {
+    vTw = 0.65 + 0.35 * sin(uTime * (0.6 + aPhase) + aPhase * 40.0);
+    gl_PointSize = aSize * uPx;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const starsFragment = /* glsl */ `
+  uniform float uOpacity;
+  varying float vTw;
+  void main() {
+    float r = length(gl_PointCoord - 0.5);
+    if (r > 0.5) discard;
+    float a = (1.0 - smoothstep(0.0, 0.5, r)) * vTw * uOpacity;
+    gl_FragColor = vec4(vec3(0.92, 0.94, 1.0), a);
+  }
+`;
+
+const navVertex = /* glsl */ `
+  attribute vec3 aColor;
+  attribute float aBlink;
+  uniform float uTime;
+  uniform float uPx;
+  varying vec3 vColor;
+  varying float vOn;
+  void main() {
+    vColor = aColor;
+    float strobe = step(0.9, fract(uTime * 0.9 + aBlink));
+    vOn = mix(0.85, strobe, step(0.5, aBlink));
+    gl_PointSize = mix(5.0, 8.0, strobe) * uPx;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const navFragment = /* glsl */ `
+  varying vec3 vColor;
+  varying float vOn;
+  void main() {
+    float r = length(gl_PointCoord - 0.5);
+    if (r > 0.5) discard;
+    gl_FragColor = vec4(vColor, (1.0 - smoothstep(0.1, 0.5, r)) * vOn);
+  }
 `;
 
 const cssColor = (name, fallback) =>
@@ -221,6 +291,7 @@ export class GlobeView {
     this.controls.addEventListener("start", () => { this.userInteracting = true; this.lastUserInput = performance.now(); this.camTarget = null; });
     this.controls.addEventListener("end", () => { this.userInteracting = false; this.lastUserInput = performance.now(); });
 
+    this.addStars();
     this.frameHooks = new Set();
     const loop = (t) => { this.tick(t); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
@@ -275,6 +346,9 @@ export class GlobeView {
     const dt = Math.min(0.05, (t - (this.lastT || t)) / 1000);
     this.lastT = t;
     if (this.radar) this.radar.material.uniforms.uSweep.value = (t / 1000) * 1.7;
+    if (this.stars) this.stars.material.uniforms.uTime.value = t / 1000;
+    if (this.navLights) this.navLights.material.uniforms.uTime.value = t / 1000;
+    this.stepPings(t);
     for (const fn of this.frameHooks) fn(t, dt);
     this.stepCamera(dt);
     if (this.plane) this.scalePlane();
@@ -446,21 +520,53 @@ export class GlobeView {
   ensurePlane() {
     if (this.plane) return;
     const geo = new THREE.ShapeGeometry(planeShape());
-    const mat = new THREE.MeshBasicMaterial({ color: cssColor("--amber-200", "#ffe2b0"), side: THREE.DoubleSide, transparent: true, depthWrite: false });
-    this.plane = new THREE.Mesh(geo, mat);
-    this.plane.renderOrder = 6;
-    this.plane.matrixAutoUpdate = false;
-    this.scene.add(this.plane);
+    this.planeGeo = geo;
+    const group = new THREE.Group();
+    group.matrixAutoUpdate = false;
+    // dark keyline so the craft reads against both oceans and city lights
+    const outline = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: "#0b1220", side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }));
+    outline.scale.setScalar(1.2);
+    outline.position.set(0, -0.02, -0.002);
+    outline.renderOrder = 6;
+    const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: cssColor("--paper-50", "#fbf6ea"), side: THREE.DoubleSide, transparent: true, depthWrite: false }));
+    fill.renderOrder = 7;
+    // amber fin stripe
+    const fin = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.5), new THREE.MeshBasicMaterial({ color: cssColor("--amber-400", "#f4b15a"), side: THREE.DoubleSide, transparent: true, depthWrite: false }));
+    fin.position.set(0, -0.55, 0.002);
+    fin.renderOrder = 8;
+    // navigation lights: red port, green starboard, white tail strobe
+    const lightsGeo = new THREE.BufferGeometry();
+    lightsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.98, -0.13, 0.01, 0.98, -0.13, 0.01, 0, -0.95, 0.01, 0, 0.1, 0.01]), 3));
+    lightsGeo.setAttribute("aColor", new THREE.BufferAttribute(new Float32Array([1, 0.25, 0.2, 0.3, 1, 0.45, 1, 1, 1, 1, 1, 1]), 3));
+    lightsGeo.setAttribute("aBlink", new THREE.BufferAttribute(new Float32Array([0, 0, 0.6, 0.85]), 1));
+    this.navLights = new THREE.Points(lightsGeo, new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uPx: { value: this.pixelRatio } },
+      vertexShader: navVertex, fragmentShader: navFragment, transparent: true, depthWrite: false,
+    }));
+    this.navLights.renderOrder = 9;
+    this.navLights.frustumCulled = false;
+    group.add(outline, fill, fin, this.navLights);
+    this.plane = group;
+    this.scene.add(group);
 
-    const maxSeg = 96;
+    // ground shadow: shows how high we are while climbing out
+    this.shadow = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: "#000000", side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false }));
+    this.shadow.matrixAutoUpdate = false;
+    this.shadow.renderOrder = 4;
+    this.scene.add(this.shadow);
+
+    const maxSeg = 110;
     const tgeo = new THREE.BufferGeometry();
     tgeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array((maxSeg + 1) * 2 * 3), 3));
     tgeo.setAttribute("aAlpha", new THREE.BufferAttribute(new Float32Array((maxSeg + 1) * 2), 1));
+    const side = new Float32Array((maxSeg + 1) * 2);
+    for (let i = 0; i <= maxSeg; i++) { side[i * 2] = 1; side[i * 2 + 1] = -1; }
+    tgeo.setAttribute("aSide", new THREE.BufferAttribute(side, 1));
     const idx = [];
     for (let i = 0; i < maxSeg; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     tgeo.setIndex(idx);
     const tmat = new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: new THREE.Color("#f6f1e6") } },
+      uniforms: { uColor: { value: new THREE.Color("#f7f3ea") } },
       vertexShader: trailVertex, fragmentShader: trailFragment,
       transparent: true, depthWrite: false, side: THREE.DoubleSide,
     });
@@ -469,12 +575,12 @@ export class GlobeView {
     this.trail.renderOrder = 5;
     this.trail.maxSeg = maxSeg;
     this.scene.add(this.trail);
-    this.planeState = { scale: 1, pos: new THREE.Vector3(), basis: new THREE.Matrix4() };
+    this.planeState = { scale: 1, pos: new THREE.Vector3(), ground: new THREE.Vector3(), basis: new THREE.Matrix4(), shadow: 0 };
   }
 
   removePlane() {
-    for (const k of ["plane", "trail"]) {
-      if (this[k]) { this.scene.remove(this[k]); this[k].geometry.dispose(); this[k] = null; }
+    for (const k of ["plane", "trail", "shadow"]) {
+      if (this[k]) { this.scene.remove(this[k]); this[k] = null; }
     }
   }
 
@@ -486,9 +592,9 @@ export class GlobeView {
     if (!this.routeInfo) return;
     this.ensurePlane();
     const { from, to, cruise } = this.routeInfo;
-    const at = (ff) => {
+    const at = (ff, ground = false) => {
       const p = interpolateGC(from.lat, from.lng, to.lat, to.lng, Math.max(0, Math.min(1, ff)));
-      const alt = Math.max(this.routeAltitude(ff, cruise), 0) * climb + 0.003;
+      const alt = ground ? 0.0008 : Math.max(this.routeAltitude(ff, cruise), 0) * climb + 0.003;
       return this.coords(p.lat, p.lng, alt);
     };
     const pos = at(f);
@@ -500,26 +606,32 @@ export class GlobeView {
     const right = new THREE.Vector3().crossVectors(forward, up).normalize();
     const fwd = new THREE.Vector3().crossVectors(up, right).normalize();
     this.planeState.pos.copy(pos);
+    this.planeState.ground.copy(at(f, true));
     this.planeState.basis.makeBasis(right, fwd, up);
+    // shadow fades as the plane climbs away, and only exists in daylight
+    const sunUp = up.dot(this.material.uniforms.sunDirection.value);
+    const height = pos.length() / this.R - 1;
+    this.planeState.shadow = 0.34 * Math.max(0, Math.min(1, (sunUp + 0.05) / 0.25)) * Math.max(0, 1 - height / 0.06);
     this.scalePlane();
 
-    // contrail: a ribbon behind the plane, tapering and fading
+    // contrail: a soft ribbon behind the plane, widening and fading as it ages
     const n = this.trail.maxSeg;
     const lengthF = Math.min(f, Math.max(0.06, 900 / Math.max(1, this.routeInfo.distKm) * 0.6));
     const posAttr = this.trail.geometry.getAttribute("position");
     const aAttr = this.trail.geometry.getAttribute("aAlpha");
-    const w = this.planeState.scale * 0.22;
+    const w = this.planeState.scale * 0.26;
+    const fade = Math.min(1, climb * 1.6);
     for (let i = 0; i <= n; i++) {
       const u = i / n;                      // 0 = tail end, 1 = at the plane
       const ff = f - lengthF * (1 - u) - 0.0004;
       const p = at(ff);
       const p2 = at(ff + 0.001);
       const dir = p2.clone().sub(p).normalize();
-      const side = new THREE.Vector3().crossVectors(dir, p.clone().normalize()).normalize();
-      const width = w * (0.35 + 1.4 * (1 - u)) * Math.min(1, u * 8);
-      posAttr.setXYZ(i * 2, p.x + side.x * width, p.y + side.y * width, p.z + side.z * width);
-      posAttr.setXYZ(i * 2 + 1, p.x - side.x * width, p.y - side.y * width, p.z - side.z * width);
-      const alpha = 0.55 * Math.pow(u, 1.4) * (lengthF > 0.0005 ? 1 : 0);
+      const sideV = new THREE.Vector3().crossVectors(dir, p.clone().normalize()).normalize();
+      const width = w * (0.4 + 1.8 * Math.pow(1 - u, 1.3)) * Math.min(1, u * 10);
+      posAttr.setXYZ(i * 2, p.x + sideV.x * width, p.y + sideV.y * width, p.z + sideV.z * width);
+      posAttr.setXYZ(i * 2 + 1, p.x - sideV.x * width, p.y - sideV.y * width, p.z - sideV.z * width);
+      const alpha = 0.6 * Math.pow(u, 1.6) * fade * (lengthF > 0.0005 ? 1 : 0);
       aAttr.setX(i * 2, alpha); aAttr.setX(i * 2 + 1, alpha);
     }
     posAttr.needsUpdate = true;
@@ -529,11 +641,77 @@ export class GlobeView {
   scalePlane() {
     if (!this.plane) return;
     const camDist = this.camera.position.length();
-    const s = Math.max(0.35, (camDist - this.R) * 0.03);
+    const s = Math.max(0.3, (camDist - this.R) * 0.028);
     this.planeState.scale = s;
-    const m = this.plane.matrix;
-    m.copy(this.planeState.basis).scale(new THREE.Vector3(s, s, s)).setPosition(this.planeState.pos);
+    const v = new THREE.Vector3(s, s, s);
+    this.plane.matrix.copy(this.planeState.basis).scale(v).setPosition(this.planeState.pos);
     this.plane.matrixWorldNeedsUpdate = true;
+    this.shadow.matrix.copy(this.planeState.basis).scale(v).setPosition(this.planeState.ground);
+    this.shadow.matrixWorldNeedsUpdate = true;
+    this.shadow.material.opacity = this.planeState.shadow;
+  }
+
+  /* ---------------- stars + pings ---------------- */
+
+  addStars() {
+    const N = this.tier === "low" ? 900 : 1800;
+    const pos = new Float32Array(N * 3), size = new Float32Array(N), phase = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, r = 4200;
+      const q = Math.sqrt(1 - u * u);
+      pos.set([r * q * Math.cos(th), r * u, r * q * Math.sin(th)], i * 3);
+      size[i] = Math.random() < 0.06 ? 2.6 + Math.random() * 1.4 : 0.9 + Math.random() * 1.3;
+      phase[i] = Math.random();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("aSize", new THREE.BufferAttribute(size, 1));
+    geo.setAttribute("aPhase", new THREE.BufferAttribute(phase, 1));
+    this.stars = new THREE.Points(geo, new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uPx: { value: this.pixelRatio }, uOpacity: { value: 1 } },
+      vertexShader: starsVertex, fragmentShader: starsFragment, transparent: true, depthWrite: false,
+    }));
+    this.stars.renderOrder = -1;
+    this.stars.frustumCulled = false;
+    this.scene.add(this.stars);
+    const cam = this.camera;
+    if (cam.far < 9000) { cam.far = 9000; cam.updateProjectionMatrix(); }
+  }
+
+  setStarOpacity(v) { if (this.stars) this.stars.material.uniforms.uOpacity.value = v; }
+
+  /** A quick expanding ripple on the surface (an airport coming into range). */
+  ping(lat, lng) {
+    if (!this.pings) {
+      this.pings = [];
+      const geo = new THREE.RingGeometry(0.82, 1, 48);
+      for (let i = 0; i < 8; i++) {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: cssColor("--amber-200", "#ffe2b0"), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+        m.renderOrder = 3;
+        m.visible = false;
+        this.scene.add(m);
+        this.pings.push({ mesh: m, t0: -1 });
+      }
+    }
+    const slot = this.pings.find((p) => p.t0 < 0) || this.pings.reduce((a, b) => (a.t0 < b.t0 ? a : b));
+    const pos = this.coords(lat, lng, 0.003);
+    slot.mesh.position.copy(pos);
+    slot.mesh.lookAt(pos.clone().multiplyScalar(2));
+    slot.t0 = performance.now();
+    slot.mesh.visible = true;
+  }
+
+  stepPings(t) {
+    if (!this.pings) return;
+    const base = Math.max(0.25, (this.camera.position.length() - this.R) * 0.03);
+    for (const p of this.pings) {
+      if (p.t0 < 0) continue;
+      const k = (t - p.t0) / 750;
+      if (k >= 1) { p.t0 = -1; p.mesh.visible = false; continue; }
+      const e = 1 - Math.pow(1 - k, 3);
+      p.mesh.scale.setScalar(base * (0.4 + 2.6 * e));
+      p.mesh.material.opacity = 0.85 * (1 - k);
+    }
   }
 
   /* ---------------- picking ---------------- */

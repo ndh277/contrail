@@ -1,22 +1,40 @@
-// Time dial: a horizontal "altitude tape" with a detent every minute.
-// Drag it, fling it (momentum), it settles on whole minutes with a spring.
+// Time dial: a horizontal "altitude tape".
+// 5 min .. 12 h. Detent every minute up to 3 h, every 5 minutes beyond, so the
+// tape stays short enough to fling while the first three hours stay precise.
+// Internally everything moves in tape pixels; minutes are derived from that.
 import { reducedMotion } from "../spring.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+export const KNEE = 180;          // minutes where the tape compresses
+const PX_FINE = 13;               // px per minute below the knee
+const PX_COARSE = 13 / 5;         // px per minute above it (13 px per 5-min detent)
+
+const toPx = (m) => (m <= KNEE ? m * PX_FINE : KNEE * PX_FINE + (m - KNEE) * PX_COARSE);
+const toMin = (px) => (px <= KNEE * PX_FINE ? px / PX_FINE : KNEE + (px - KNEE * PX_FINE) / PX_COARSE);
+/** Nearest detent for a minute value. */
+export const detent = (m) => (m <= KNEE + 2.5 ? Math.round(Math.min(m, KNEE)) : KNEE + 5 * Math.round((m - KNEE) / 5));
+
+export function clockLabel(m) {
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+}
+
 export class TimeDial {
-  constructor(el, { min = 5, max = 180, value = 25, pxPerMin = 13, onChange, onDetent, onSettle, onGrab } = {}) {
-    Object.assign(this, { el, min, max, value, pxPerMin, onChange, onDetent, onSettle, onGrab });
+  constructor(el, { min = 5, max = 720, value = 25, onChange, onDetent, onSettle, onGrab } = {}) {
+    Object.assign(this, { el, min, max, onChange, onDetent, onSettle, onGrab });
+    this.pos = toPx(value);
+    this.minPos = toPx(min);
+    this.maxPos = toPx(max);
     this.canvas = document.createElement("canvas");
     el.append(this.canvas);
     el.tabIndex = 0;
     el.setAttribute("role", "slider");
-    el.setAttribute("aria-label", "Focus duration in minutes");
+    el.setAttribute("aria-label", "Focus duration");
     el.setAttribute("aria-valuemin", min);
     el.setAttribute("aria-valuemax", max);
-    this.velocity = 0;          // minutes per second
+    this.velocity = 0;          // px per second
     this.mode = "idle";         // idle | drag | coast | snap | glide
-    this.lastDetent = Math.round(value);
+    this.lastDetent = detent(value);
     this.samples = [];
     this.raf = 0;
 
@@ -27,14 +45,16 @@ export class TimeDial {
     el.addEventListener("keydown", (e) => this.key(e));
     el.addEventListener("wheel", (e) => {
       e.preventDefault();
-      this.setValue(Math.round(this.value) + Math.sign(e.deltaY || e.deltaX), { animate: true, user: true });
+      this.nudge(Math.sign(e.deltaY || e.deltaX));
     }, { passive: false });
 
     new ResizeObserver(() => this.resize()).observe(el);
     this.resize();
-    this.themeObserver = new MutationObserver(() => this.draw());
-    this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    new MutationObserver(() => this.draw())
+      .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   }
+
+  get value() { return Math.max(this.min, Math.min(this.max, toMin(this.pos))); }
 
   resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
@@ -53,8 +73,9 @@ export class TimeDial {
     this.el.setPointerCapture(e.pointerId);
     this.mode = "drag";
     this.dragX = e.clientX;
-    this.samples = [{ t: performance.now(), v: this.value }];
+    this.samples = [{ t: performance.now(), p: this.pos }];
     this.velocity = 0;
+    this.el.classList.add("is-grabbed");
     this.onGrab?.();
     this.loop();
   }
@@ -63,52 +84,64 @@ export class TimeDial {
     if (this.mode !== "drag") return;
     const dx = e.clientX - this.dragX;
     this.dragX = e.clientX;
-    let next = this.value - dx / this.pxPerMin;
+    let next = this.pos - dx;
     // rubber-band past the ends
-    if (next < this.min) next = this.value - (dx / this.pxPerMin) * 0.3 * Math.max(0, 1 - (this.min - this.value) / 6);
-    if (next > this.max) next = this.value - (dx / this.pxPerMin) * 0.3 * Math.max(0, 1 - (this.value - this.max) / 6);
-    this.value = next;
+    if (next < this.minPos || next > this.maxPos) {
+      const over = next < this.minPos ? this.minPos - this.pos : this.pos - this.maxPos;
+      next = this.pos - dx * 0.35 * Math.max(0, 1 - Math.max(0, over) / 90);
+    }
+    this.pos = next;
     const now = performance.now();
-    this.samples.push({ t: now, v: this.value });
+    this.samples.push({ t: now, p: this.pos });
     while (this.samples.length > 2 && now - this.samples[0].t > 90) this.samples.shift();
     this.changed(true);
   }
 
   up() {
     if (this.mode !== "drag") return;
+    this.el.classList.remove("is-grabbed");
     const s = this.samples;
     const a = s[0], b = s[s.length - 1];
     const dt = (b.t - a.t) / 1000;
-    this.velocity = dt > 0.008 ? (b.v - a.v) / dt : 0;
+    this.velocity = dt > 0.008 ? (b.p - a.p) / dt : 0;
     if (performance.now() - b.t > 80) this.velocity = 0;
-    this.mode = Math.abs(this.velocity) > 4 && !reducedMotion() ? "coast" : "snap";
+    this.mode = Math.abs(this.velocity) > 60 && !reducedMotion() ? "coast" : "snap";
     this.snapTarget = null;
     this.loop();
   }
 
+  nudge(dir) {
+    const v = detent(this.value);
+    const step = v < KNEE || (v === KNEE && dir < 0) ? 1 : 5;
+    this.setValue(v + dir * step, { animate: true, user: true });
+  }
+
   key(e) {
-    const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 15, PageDown: -15 }[e.key];
-    if (e.key === "Home") this.setValue(this.min, { animate: true, user: true });
+    const v = detent(this.value);
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") this.nudge(1);
+    else if (e.key === "ArrowLeft" || e.key === "ArrowDown") this.nudge(-1);
+    else if (e.key === "PageUp") this.setValue(v + 15, { animate: true, user: true });
+    else if (e.key === "PageDown") this.setValue(v - 15, { animate: true, user: true });
+    else if (e.key === "Home") this.setValue(this.min, { animate: true, user: true });
     else if (e.key === "End") this.setValue(this.max, { animate: true, user: true });
-    else if (step) this.setValue(Math.round(this.value) + step, { animate: true, user: true });
     else return;
     e.preventDefault();
   }
 
-  /** Programmatic value change (reverse pick). */
-  setValue(v, { animate = true, user = false } = {}) {
-    v = Math.max(this.min, Math.min(this.max, Math.round(v)));
+  /** Programmatic value change (reverse pick). Values are not forced onto a detent. */
+  setValue(v, { animate = true, user = false, exact = false } = {}) {
+    v = Math.max(this.min, Math.min(this.max, exact ? Math.round(v) : detent(v)));
     if (user) this.onGrab?.();
     if (!animate || reducedMotion()) {
-      this.value = v; this.mode = "idle"; this.lastDetent = v;
+      this.pos = toPx(v); this.mode = "idle"; this.lastDetent = detent(v);
       this.changed(false); this.onSettle?.(v); this.draw();
       return;
     }
     this.mode = "glide";
-    this.glideFrom = this.value;
-    this.glideTo = v;
+    this.glideFrom = this.pos;
+    this.glideTo = toPx(v);
     this.glideStart = performance.now();
-    this.glideDur = Math.min(900, 260 + Math.abs(v - this.value) * 6);
+    this.glideDur = Math.min(950, 280 + Math.abs(this.glideTo - this.pos) * 0.45);
     this.loop();
   }
 
@@ -132,26 +165,26 @@ export class TimeDial {
       case "drag":
         return true;
       case "coast": {
-        this.value += this.velocity * dt;
-        this.velocity *= Math.exp(-3.2 * dt);
-        if (this.value < this.min || this.value > this.max) this.velocity *= Math.exp(-18 * dt);
+        this.pos += this.velocity * dt;
+        this.velocity *= Math.exp(-2.6 * dt);
+        if (this.pos < this.minPos || this.pos > this.maxPos) this.velocity *= Math.exp(-20 * dt);
         this.changed(true);
-        if (Math.abs(this.velocity) < 5) { this.mode = "snap"; this.snapTarget = null; }
+        if (Math.abs(this.velocity) < 70) { this.mode = "snap"; this.snapTarget = null; }
         return true;
       }
       case "snap": {
         if (this.snapTarget == null) {
-          const projected = this.value + this.velocity * 0.12;
-          this.snapTarget = Math.max(this.min, Math.min(this.max, Math.round(projected)));
+          const projected = toMin(this.pos + this.velocity * 0.1);
+          this.snapTarget = toPx(Math.max(this.min, Math.min(this.max, detent(projected))));
         }
         // critically damped approach to the detent
-        const k = 220, c = 2 * Math.sqrt(k);
-        const f = -k * (this.value - this.snapTarget) - c * this.velocity;
+        const k = 240, c = 2 * Math.sqrt(k);
+        const f = -k * (this.pos - this.snapTarget) - c * this.velocity;
         this.velocity += f * dt;
-        this.value += this.velocity * dt;
+        this.pos += this.velocity * dt;
         this.changed(true);
-        if (Math.abs(this.value - this.snapTarget) < 0.004 && Math.abs(this.velocity) < 0.05) {
-          this.value = this.snapTarget; this.velocity = 0; this.mode = "idle";
+        if (Math.abs(this.pos - this.snapTarget) < 0.05 && Math.abs(this.velocity) < 1) {
+          this.pos = this.snapTarget; this.velocity = 0; this.mode = "idle";
           this.changed(false);
           this.onSettle?.(this.value);
           return false;
@@ -161,10 +194,10 @@ export class TimeDial {
       case "glide": {
         const p = Math.min(1, (t - this.glideStart) / this.glideDur);
         const e = 1 - Math.pow(1 - p, 3);
-        this.value = this.glideFrom + (this.glideTo - this.glideFrom) * e;
+        this.pos = this.glideFrom + (this.glideTo - this.glideFrom) * e;
         this.changed(false);
         if (p >= 1) {
-          this.value = this.glideTo; this.mode = "idle"; this.lastDetent = this.value;
+          this.pos = this.glideTo; this.mode = "idle"; this.lastDetent = detent(this.value);
           this.onSettle?.(this.value);
           return false;
         }
@@ -176,14 +209,15 @@ export class TimeDial {
   }
 
   changed(detents) {
-    const r = Math.max(this.min, Math.min(this.max, Math.round(this.value)));
-    if (r !== this.lastDetent) {
-      this.lastDetent = r;
-      if (detents) this.onDetent?.(r);
+    const v = this.value;
+    const d = detent(v);
+    if (d !== this.lastDetent) {
+      this.lastDetent = d;
+      if (detents) this.onDetent?.(d);
     }
-    this.el.setAttribute("aria-valuenow", r);
-    this.el.setAttribute("aria-valuetext", `${r} minutes`);
-    this.onChange?.(Math.max(this.min, Math.min(this.max, this.value)));
+    this.el.setAttribute("aria-valuenow", d);
+    this.el.setAttribute("aria-valuetext", d < 60 ? `${d} minutes` : `${Math.floor(d / 60)} hours ${d % 60} minutes`);
+    this.onChange?.(v);
   }
 
   /* ---------- drawing ---------- */
@@ -195,50 +229,77 @@ export class TimeDial {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const cx = w / 2;
-    const ppm = this.pxPerMin;
     const low = css("--text-low"), mid = css("--text-mid"), hi = css("--text-hi"), accent = css("--accent");
-    const base = h - 10;
+    const mono = css("--font-mono");
+    const base = h - 16;
 
-    const first = Math.floor(this.value - cx / ppm) - 1;
-    const last = Math.ceil(this.value + cx / ppm) + 1;
+    // recessed track
+    const track = ctx.createLinearGradient(0, base - 46, 0, base + 10);
+    track.addColorStop(0, "rgba(0,0,0,0)");
+    track.addColorStop(0.55, css("--dial-track") || "rgba(0,0,0,0.18)");
+    track.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = track;
+    ctx.fillRect(0, base - 46, w, 56);
+
+    const fromMin = Math.max(this.min, Math.floor(toMin(Math.max(0, this.pos - cx - 20))));
+    const toM = Math.min(this.max, Math.ceil(toMin(this.pos + cx + 20)));
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
-    for (let m = first; m <= last; m++) {
-      if (m < this.min || m > this.max) continue;
-      const x = cx + (m - this.value) * ppm;
-      const major = m % 15 === 0, five = m % 5 === 0;
-      const len = major ? 30 : five ? 20 : 11;
-      const near = 1 - Math.min(1, Math.abs(x - cx) / (w * 0.5));
-      ctx.globalAlpha = 0.35 + 0.65 * near;
-      ctx.strokeStyle = major ? hi : five ? mid : low;
-      ctx.lineWidth = major ? 2 : 1.25;
+    ctx.lineCap = "round";
+    for (let m = fromMin; m <= toM; m++) {
+      const fine = m <= KNEE;
+      if (!fine && m % 5) continue;
+      const x = cx + (toPx(m) - this.pos);
+      const major = fine ? m % 15 === 0 : m % 60 === 0;
+      const medium = fine ? m % 5 === 0 : m % 15 === 0;
+      const d = Math.abs(x - cx) / (w * 0.5);
+      const near = Math.max(0, 1 - d);
+      const lens = 1 + 0.55 * Math.pow(near, 6);      // ticks swell under the needle
+      const len = (major ? 26 : medium ? 17 : 9) * lens;
+      ctx.globalAlpha = 0.25 + 0.75 * near;
+      ctx.strokeStyle = major ? hi : medium ? mid : low;
+      ctx.lineWidth = major ? 2 : medium ? 1.5 : 1.2;
       ctx.beginPath();
       ctx.moveTo(x, base);
       ctx.lineTo(x, base - len);
       ctx.stroke();
-      if (major && Math.abs(x - cx) > 16) {
-        ctx.globalAlpha *= Math.min(1, (Math.abs(x - cx) - 16) / 18);
+      if (major && Math.abs(x - cx) > 18) {
+        ctx.globalAlpha *= Math.min(1, (Math.abs(x - cx) - 18) / 22);
         ctx.fillStyle = hi;
-        ctx.font = `600 13px ${css("--font-mono")}`;
-        const label = m < 60 ? `${m}` : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
-        ctx.fillText(label, x, base - len - 7);
+        ctx.font = `500 12px ${mono}`;
+        ctx.fillText(clockLabel(m), x, base - 36);
       }
     }
+
+    // the knee: from here on each detent is 5 minutes
+    const kx = cx + (toPx(KNEE) - this.pos);
+    if (kx > -40 && kx < w + 40) {
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = low;
+      ctx.font = `400 9px ${mono}`;
+      ctx.textAlign = "left";
+      ctx.fillText("5-MIN STEPS →", kx + 6, base + 13);
+      ctx.textAlign = "center";
+    }
+
     // baseline
-    ctx.globalAlpha = 0.5;
+    ctx.globalAlpha = 0.6;
     ctx.strokeStyle = low;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, base + 0.5); ctx.lineTo(w, base + 0.5); ctx.stroke();
 
-    // needle
+    // needle with a soft glow
     ctx.globalAlpha = 1;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 12;
     ctx.strokeStyle = accent;
-    ctx.fillStyle = accent;
     ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(cx, base + 6); ctx.lineTo(cx, base - 44); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, base + 3); ctx.lineTo(cx, base - 52); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = accent;
     ctx.beginPath();
-    ctx.moveTo(cx - 7, base + 9); ctx.lineTo(cx + 7, base + 9); ctx.lineTo(cx, base + 1); ctx.closePath();
+    ctx.moveTo(cx - 7, base + 10); ctx.lineTo(cx + 7, base + 10); ctx.lineTo(cx, base + 2); ctx.closePath();
     ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, base - 52, 3.2, 0, Math.PI * 2); ctx.fill();
   }
 }

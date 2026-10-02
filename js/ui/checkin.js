@@ -5,25 +5,37 @@ import { sfx } from "../audio.js";
 import { Spring } from "../spring.js";
 import { esc, hash, rng, toast } from "./common.js";
 
+const ICON = {
+  pause: `<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="3" width="2.6" height="10" rx="1" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" rx="1" fill="currentColor"/></svg>`,
+  nopause: `<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="3" width="2.6" height="10" rx="1" fill="currentColor" opacity=".45"/><rect x="9.4" y="3" width="2.6" height="10" rx="1" fill="currentColor" opacity=".45"/><path d="M2.5 13.5l11-11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+  stay: `<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 5v3.2l2 1.3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>`,
+  awake: `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3" fill="currentColor"/><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></g></svg>`,
+  full: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  sound: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z" fill="currentColor"/><path d="M11 5.5a3.5 3.5 0 010 5M12.8 3.6a6 6 0 010 8.8" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>`,
+};
+
 export const CLASSES = {
   first: {
     name: "First",
-    rules: "No pause. Screen stays awake, goes fullscreen, and the ambience starts by itself. Leave the app for over 10 s and the flight diverts.",
+    line: "The strictest cabin. Everything set up for deep focus.",
+    rules: [["nopause", "No pause"], ["stay", "Leave >10 s = divert"], ["awake", "Screen stays awake"], ["full", "Fullscreen"], ["sound", "Ambience on"]],
   },
   business: {
     name: "Business",
-    rules: "No pause. Leave the app for more than 10 seconds and the flight diverts — you still keep the miles flown.",
+    line: "Committed, but human. You keep the miles you fly even if you divert.",
+    rules: [["nopause", "No pause"], ["stay", "Leave >10 s = divert"]],
   },
   economy: {
     name: "Economy",
-    rules: "Pause whenever you need to. The most relaxed seat on the plane.",
+    line: "The relaxed cabin. Step away whenever you need to.",
+    rules: [["pause", "Pause allowed"]],
   },
 };
 
 const CABIN = [
   { cls: "first", rows: [1, 2], layout: ["A", null, "F"] },
   { cls: "business", rows: [3, 4, 5], layout: ["A", "C", null, "D", "F"] },
-  { cls: "economy", rows: [10, 11, 12, 14, 15, 16, 17, 18], layout: ["A", "B", "C", null, "D", "E", "F"] },
+  { cls: "economy", rows: [10, 11, 12, 14, 15, 16, 17, 18], layout: ["A", "B", "C", null, "D", "E", "F"], wingAfter: 12 },
 ];
 
 export class CheckIn {
@@ -40,6 +52,7 @@ export class CheckIn {
       if (b && !b.disabled) this.pickSeat(b);
     });
     this.$("#tag-rail").addEventListener("click", (e) => {
+      if (e.target.closest("[data-add]")) { this.openEditor(true); return; }
       const b = e.target.closest("[data-tag]");
       if (b) this.pickTag(b.dataset.tag);
     });
@@ -62,21 +75,25 @@ export class CheckIn {
 
   renderCabin() {
     const r = rng(hash(`${this.trip.origin.iata}${this.trip.dest.iata}${new Date().toDateString()}`));
-    const html = CABIN.map((zone) => {
+    const zones = CABIN.map((zone) => {
       const rows = zone.rows.map((row) => {
         const seats = zone.layout.map((letter) => {
           if (!letter) return `<span class="aisle" aria-hidden="true">${zone.cls === "economy" ? row : ""}</span>`;
-          const taken = zone.cls === "first" ? false : r() < (zone.cls === "business" ? 0.3 : 0.28);
+          const taken = zone.cls === "first" ? false : r() < (zone.cls === "business" ? 0.3 : 0.3);
           const id = `${row}${letter}`;
-          return `<button class="seat seat-${zone.cls}" data-seat="${id}" data-cls="${zone.cls}" ${taken ? "disabled aria-label=\"Seat " + id + " taken\"" : `aria-label="Seat ${id}, ${CLASSES[zone.cls].name}"`}>
-            <span class="seat-back"></span><span class="seat-id">${id}</span></button>`;
+          if (taken) return `<span class="seat seat-${zone.cls} is-taken" role="img" aria-label="Seat ${id} taken"><span class="pax"></span></span>`;
+          return `<button class="seat seat-${zone.cls}" data-seat="${id}" data-cls="${zone.cls}" aria-label="Seat ${id}, ${CLASSES[zone.cls].name}"><span class="seat-id">${id}</span></button>`;
         }).join("");
-        return `<div class="seat-row">${seats}</div>`;
+        const wing = zone.wingAfter === row ? `<div class="wing-row" aria-hidden="true"><span class="exit l">EXIT</span><span class="exit r">EXIT</span></div>` : "";
+        return `<div class="seat-row">${seats}</div>${wing}`;
       }).join("");
       return `<section class="cabin-zone zone-${zone.cls}" aria-label="${CLASSES[zone.cls].name} class">
         <div class="zone-head"><span>${CLASSES[zone.cls].name}</span><i></i></div>${rows}</section>`;
-    }).join(`<div class="galley" aria-hidden="true"></div>`);
-    this.$("#cabin").innerHTML = html;
+    });
+    this.$("#cabin").innerHTML =
+      `<div class="galley" aria-hidden="true"><span>Galley</span></div>` +
+      zones.join(`<div class="bulkhead" aria-hidden="true"><span class="exit l">EXIT</span><span class="lav">Lav</span><span class="exit r">EXIT</span></div>`) +
+      `<div class="galley" aria-hidden="true"><span>Galley</span></div>`;
   }
 
   pickSeat(btn) {
@@ -92,10 +109,11 @@ export class CheckIn {
   renderInfo() {
     const info = this.$("#class-info");
     if (!this.seat) {
-      info.innerHTML = `<p class="class-hint">Tap a free seat. Your cabin decides how strict the flight is.</p>`;
+      info.innerHTML = `<p class="class-hint">Tap a free seat. The cabin you sit in decides how strict this flight will be.</p>`;
     } else {
       const c = CLASSES[this.seat.cls];
-      info.innerHTML = `<div class="class-badge cls-${this.seat.cls}"><b>${this.seat.id}</b><span>${c.name}</span></div><p>${c.rules}</p>`;
+      info.innerHTML = `<div class="class-badge cls-${this.seat.cls}"><b>${this.seat.id}</b><span>${c.name}</span></div>
+        <div class="class-rules"><p>${c.line}</p><ul>${c.rules.map(([icon, text]) => `<li>${ICON[icon]}<span>${text}</span></li>`).join("")}</ul></div>`;
     }
     const ready = this.seat && this.tagId;
     const btn = this.$("#print-btn");
@@ -111,9 +129,13 @@ export class CheckIn {
       <button class="luggage-tag${t.id === this.tagId ? " is-on" : ""}" data-tag="${esc(t.id)}" style="--tag:${esc(t.color)}" aria-pressed="${t.id === this.tagId}">
         <span class="tag-string" aria-hidden="true"></span>
         <span class="tag-body"><span class="tag-hole" aria-hidden="true"></span><span class="tag-name">${esc(t.name)}</span></span>
-      </button>`).join("");
+      </button>`).join("") + `
+      <button class="luggage-tag tag-add" data-add aria-label="Add a purpose tag">
+        <span class="tag-string" aria-hidden="true"></span>
+        <span class="tag-body"><span class="tag-hole" aria-hidden="true"></span><span class="tag-name">+ New</span></span>
+      </button>`;
     this.springs.clear();
-    rail.querySelectorAll(".luggage-tag").forEach((el) => {
+    rail.querySelectorAll(".luggage-tag[data-tag]").forEach((el) => {
       const body = el;
       const s = new Spring({ stiffness: 120, damping: 7, onUpdate: (v) => { body.style.setProperty("--swing", `${v}deg`); } });
       this.springs.set(el.dataset.tag, s);
@@ -173,10 +195,11 @@ export class CheckIn {
     });
   }
 
-  openEditor() {
+  openEditor(addNew = false) {
     this.draft = tags.map((t) => ({ ...t }));
-    this.renderEditor();
+    if (addNew) this.draft.push({ id: `t${Date.now().toString(36)}`, name: "New tag", color: TAG_COLORS[this.draft.length % TAG_COLORS.length] });
     this.dlg.showModal();
+    this.renderEditor(addNew ? this.draft.length - 1 : null);
   }
 
   renderEditor(focusIndex = null) {

@@ -64,12 +64,14 @@
   --sky-top: #03060d;
   --sky-bottom: #0f1d36;
   --star: rgba(230, 236, 255, 0.75);
+  --sky-glow: rgba(60, 90, 160, 0.18);
 
   /* Globe */
   --globe-atmosphere: #79a7ff;
   --radar: #f4b15a;
   --airport-lit: #ffe2b0;
   --airport-dim: #55617a;
+  --dial-track: rgba(0, 0, 0, 0.32);
 
   /* Shape + space */
   --r-sm: 8px;
@@ -120,7 +122,9 @@
   --sky-top: #9fb7d6;
   --sky-bottom: #e6edf5;
   --star: rgba(255, 255, 255, 0);
+  --sky-glow: rgba(255, 255, 255, 0.6);
   --airport-dim: #8c97ab;
+  --dial-track: rgba(20, 38, 70, 0.08);
   --shadow-1: 0 1px 2px rgba(20, 38, 70, 0.12), 0 8px 24px rgba(20, 38, 70, 0.14);
   color-scheme: light;
 }

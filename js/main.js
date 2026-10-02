@@ -11,8 +11,11 @@ import { SettingsPanel } from "./ui/settings-panel.js";
 const $ = (id) => document.getElementById(id);
 const app = $("app");
 
+let globeView = null;
+
 function applyTheme() {
   const theme = effectiveTheme();
+  globeView?.setStarOpacity(theme === "night" ? 1 : 0);
   if (document.documentElement.dataset.theme !== theme) document.documentElement.dataset.theme = theme;
   document.querySelector('meta[name="theme-color"]').content = theme === "day" ? "#dfe6ef" : "#080d18";
 }
@@ -38,6 +41,8 @@ async function boot() {
   $("home-code").textContent = home.iata;
 
   const view = new GlobeView($("globe"));
+  globeView = view;
+  applyTheme();
   view.pointOfView({ lat: home.lat, lng: home.lng, altitude: 2.4 }, 0);
 
   const departure = new Departure({

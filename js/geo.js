@@ -69,3 +69,15 @@ export function formatClock(min) {
   const m = Math.round(min);
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
 }
+
+/** Point reached travelling `distKm` from a start point on an initial bearing (degrees). */
+export function destinationPoint(lat, lon, bearing, distKm) {
+  const d = distKm / EARTH_RADIUS_KM, b = bearing * RAD, p1 = lat * RAD, l1 = lon * RAD;
+  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+  const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+  return { lat: p2 * DEG, lng: ((l2 * DEG + 540) % 360) - 180 };
+}
+
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+export const compassWord = (bearing) => COMPASS[Math.round(bearing / 45) % 8];
+

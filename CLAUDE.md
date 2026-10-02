@@ -35,13 +35,13 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 
 ### 4.1 Departure (home)
 - Home airport defaults to **HAN (Hà Nội – Nội Bài)** and can be changed.
-- **Time dial:** 5–180 min, with a tactile detent every minute (haptic tick, see §6). While the dial moves:
+- **Time dial:** 5–720 min (12 h; raised from 180 min at Henry's request after M1), with a tactile detent every minute up to 3 h and every 5 min beyond (haptic tick, see §6). While the dial moves:
   - A **radar ring** expands from the home airport on the globe. Radius = duration × cruise speed (default **800 km/h**, measured as great-circle distance).
   - Airports **light up with a small pop and a radar blip** as the ring reaches them. Airports out of range dim.
   - The camera zooms out to fit the ring (25 min ≈ northern Vietnam, 3 h ≈ Southeast Asia).
   - A suggestion list below sorts the in-range airports by how closely their flight time matches the chosen duration.
 - **Reverse pick:** tapping any airport snaps the dial to its computed flight time.
-- **Setting "Route scale":** 1× (real speed), 2×, 4×. This lets long-haul destinations fit inside a 3-hour session. Show the active scale on the pass.
+- **Setting "Route scale":** 1× (real speed), 2×, 4×. This lets long-haul destinations fit inside a shorter session. Show the active scale on the pass.
 
 ### 4.2 Seat class = strictness
 | Class | Rules |
