@@ -7,6 +7,10 @@ import { CheckIn } from "./ui/checkin.js";
 import { BoardingPass } from "./ui/pass.js";
 import { Flight } from "./ui/flight.js";
 import { SettingsPanel } from "./ui/settings-panel.js";
+import { Landing } from "./ui/landing.js";
+import { Logbook } from "./ui/logbook.js";
+import { getActive, visitedSet } from "./flights.js";
+import { updateSettings } from "./settings.js";
 
 const $ = (id) => document.getElementById(id);
 const app = $("app");
@@ -63,13 +67,39 @@ async function boot() {
     onTorn: (flight) => { show("flight"); flightView.start(flight); },
   });
 
+  const refreshVisited = async () => {
+    const seen = await visitedSet();
+    view.setVisited([...seen].map((iata) => getAirport(iata)?.i).filter((i) => i != null));
+  };
+
   const flightView = new Flight({
     view,
     root: $("flight-hud"),
-    onEnd: () => {
+    onLanded: (rec) => { show("landing"); landing.show(rec, { home: settings.home }); },
+  });
+
+  const landing = new Landing({
+    root: $("landing"),
+    onDone: async (next, rec) => {
+      flightView.reset();
+      if (next === "continue" && getAirport(rec.dest)) {
+        await updateSettings({ home: rec.dest });
+        $("home-code").textContent = rec.dest;
+      }
       show("departure");
       departure.setHome(getAirport(settings.home));
+      refreshVisited();
     },
+  });
+
+  const logbook = new Logbook({
+    root: $("logbook"),
+    onBack: () => show("departure"),
+    onChange: refreshVisited,
+  });
+  $("logbook-btn").addEventListener("click", () => {
+    if (app.dataset.screen !== "departure") return;
+    sfx.tap(); logbook.open(); show("logbook");
   });
 
   const panel = new SettingsPanel({
@@ -84,11 +114,16 @@ async function boot() {
     sfx.tap(); panel.open(true);
   });
 
-  show("departure");
   // let the layout settle before measuring the globe for the first camera fit
-  requestAnimationFrame(() => departure.setHome(home));
+  requestAnimationFrame(async () => {
+    departure.setHome(home);
+    await refreshVisited();
+    const active = await getActive();
+    if (active) { show("flight"); flightView.resume(active); }
+    else show("departure");
+  });
 
-  window.contrail = { view, departure, checkin, pass, flightView, settings };
+  window.contrail = { view, departure, checkin, pass, flightView, landing, logbook, settings };
 }
 
 window.addEventListener("load", boot);

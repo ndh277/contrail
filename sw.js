@@ -3,7 +3,7 @@
 // heavy, versioned assets (vendor libs, textures, airport data) are cache-first.
 // Everything except the Google 3D mode (M3) works offline.
 
-const VERSION = "polish-1";
+const VERSION = "m2-1";
 const SHELL_CACHE = `contrail-shell-${VERSION}`;
 const ASSET_CACHE = "contrail-assets-v1";
 
@@ -31,6 +31,13 @@ const SHELL = [
   "js/ui/pass.js",
   "js/ui/flight.js",
   "js/ui/settings-panel.js",
+  "js/ui/window-view.js",
+  "js/ui/landing.js",
+  "js/ui/logbook.js",
+  "js/clock.js",
+  "js/flights.js",
+  "js/ambience.js",
+  "js/stamps.js",
   "assets/icons/icon.svg",
   "assets/icons/icon-192.png",
 ];

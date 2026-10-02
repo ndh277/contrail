@@ -115,6 +115,7 @@ const radarFragment = /* glsl */ `
 const pointsVertex = /* glsl */ `
   attribute float aDist;
   attribute float aLarge;
+  attribute float aVisited;
   uniform float uRange;
   uniform float uPopWidth;
   uniform float uPx;
@@ -122,14 +123,16 @@ const pointsVertex = /* glsl */ `
   varying float vLit;
   varying float vPop;
   varying float vFace;
+  varying float vVisited;
   void main() {
+    vVisited = aVisited;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mv;
     float hidden = step(aDist, -0.5);
     float lit = step(aDist, uRange);
     float k = (uRange - aDist) / uPopWidth;
     float pop = lit * exp(-k * 1.6);
-    float base = mix(3.6, 5.6, aLarge) * mix(0.75, 1.0, lit);
+    float base = mix(3.6, 5.6, aLarge) * mix(0.75, 1.0, lit) * mix(1.35, 1.0, aVisited);
     gl_PointSize = (1.0 - hidden) * base * (1.0 + 1.4 * pop) * uPx * uScale;
     vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
     vFace = smoothstep(0.02, 0.3, dot(normalize(wp), normalize(cameraPosition - wp)));
@@ -145,11 +148,16 @@ const pointsFragment = /* glsl */ `
   varying float vLit;
   varying float vPop;
   varying float vFace;
+  varying float vVisited;
   void main() {
     vec2 p = gl_PointCoord - 0.5;
     float r = length(p);
     if (r > 0.5) discard;
-    float disc = 1.0 - smoothstep(0.32, 0.5, r);
+    // visited cities are filled; the rest are a dashed outline waiting to be unlocked
+    float filled = 1.0 - smoothstep(0.32, 0.5, r);
+    float ring = smoothstep(0.24, 0.31, r) * (1.0 - smoothstep(0.42, 0.5, r));
+    float dash = smoothstep(-0.25, 0.25, sin(atan(p.y, p.x) * 6.0));
+    float disc = mix(ring * (0.35 + 0.65 * dash), filled, vVisited);
     vec3 col = mix(uDim, mix(uLit, uFlash, vPop), vLit);
     float alpha = disc * mix(0.45, 1.0, vLit) * vFace;
     gl_FragColor = vec4(col, alpha);
@@ -445,6 +453,7 @@ export class GlobeView {
       geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       geo.setAttribute("aLarge", new THREE.BufferAttribute(large, 1));
       geo.setAttribute("aDist", new THREE.BufferAttribute(new Float32Array(n), 1));
+      geo.setAttribute("aVisited", new THREE.BufferAttribute(new Float32Array(n), 1));
       const mat = new THREE.ShaderMaterial({
         uniforms: {
           uRange: { value: 0 }, uPopWidth: { value: 60 }, uPx: { value: this.pixelRatio }, uScale: { value: 1 },
@@ -465,6 +474,15 @@ export class GlobeView {
     const attr = this.points.geometry.getAttribute("aDist");
     attr.array.set(dist);
     if (hideIndex >= 0) attr.array[hideIndex] = -1;
+    attr.needsUpdate = true;
+  }
+
+  /** Mark the airports Henry has landed at (filled markers). */
+  setVisited(indices) {
+    if (!this.points) return;
+    const attr = this.points.geometry.getAttribute("aVisited");
+    attr.array.fill(0);
+    for (const i of indices) attr.array[i] = 1;
     attr.needsUpdate = true;
   }
 

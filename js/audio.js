@@ -31,6 +31,10 @@ export function unlockAudio() {
 
 export function setVolume(v) { if (master) master.gain.value = v; }
 
+/** Shared context + master bus for the ambience engine (null until the first gesture). */
+export const audioContext = () => (unlocked ? ensure() : null);
+export const masterNode = () => master;
+
 function ok() { return settings.sound && unlocked && ensure(); }
 
 function env(gainNode, t, attack, peak, decay) {
@@ -136,6 +140,30 @@ export const sfx = {
   tap() {
     if (!ok()) return;
     tone(ctx.currentTime, { type: "sine", freq: 880, to: 700, dur: 0.05, peak: 0.04 });
+  },
+
+  /** passport stamp hitting paper on a desk */
+  thud() {
+    if (!ok()) return;
+    const t = ctx.currentTime;
+    tone(t, { freq: 120, to: 42, dur: 0.22, peak: 0.55, attack: 0.002 });
+    noise(t, 0.09, { type: "lowpass", freq: 700, q: 0.8, peak: 0.6, attack: 0.001 });
+    noise(t + 0.004, 0.03, { type: "bandpass", freq: 2400, q: 1.5, peak: 0.18, attack: 0.001 });
+  },
+
+  /** tick while holding the abort button */
+  holdTick(k = 0) {
+    if (!ok()) return;
+    tone(ctx.currentTime, { type: "triangle", freq: 520 + k * 260, to: 500 + k * 250, dur: 0.05, peak: 0.05 });
+  },
+
+  /** window shade sliding */
+  shade(down = true) {
+    if (!ok()) return;
+    const t = ctx.currentTime;
+    const r = noise(t, 0.42, { type: "bandpass", freq: down ? 1400 : 900, q: 0.9, peak: 0.12, attack: 0.03 });
+    r.f.frequency.exponentialRampToValueAtTime(down ? 700 : 1600, t + 0.4);
+    noise(t + 0.42, 0.03, { type: "bandpass", freq: 1800, q: 3, peak: 0.12 });
   },
 
   /** two-tone cabin chime */
