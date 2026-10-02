@@ -1,10 +1,10 @@
-// Window view: the sky outside the cabin window, rendered with WebGL — a fragment
-// shader for the sky, cirrus and the far cloud deck, and on top of it a field of soft
-// cloud puffs that drift past with real depth (near ones fast, far ones slow, now and
-// then a wisp sweeps right past the glass). Sun, stars and colours follow the time.
-// Lighting follows the sun's real elevation at the plane's position; the view
-// banks and pitches a little with the phone's gyroscope. The shade inside the
-// window frame can be dragged down by hand.
+// Window view: the sky outside the cabin window, rendered with WebGL. A slab of
+// cumulus is ray-marched through 3D noise (lit by the real sun for the plane's
+// position and time), with the sea or land showing through the gaps, haze toward
+// the horizon, cirrus above and stars at night. The buffer is drawn at reduced
+// resolution and adapts to the device, so it stays smooth and cool.
+// The view banks and pitches a little with the phone's gyroscope; the shade inside
+// the window frame can be dragged down by hand.
 import { subsolarPoint } from "../geo.js";
 import { sunElevation, look } from "../globe/skylook.js";
 
@@ -16,6 +16,9 @@ const RAD = Math.PI / 180;
 
 const VERT = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
 
+// A slab of cumulus seen from cruise altitude, ray-marched through 3D noise.
+// The noise comes from a small 2D texture (two channels offset so a z-slice is a
+// single lookup), which keeps each step cheap enough for a phone.
 const FRAG = `
 precision highp float;
 uniform vec2 uRes;
@@ -32,180 +35,146 @@ uniform vec3 uSunCol;
 uniform vec3 uCloudLit;
 uniform vec3 uCloudShade;
 uniform vec3 uGround;
+uniform sampler2D uNoise;
+
+#define STEPS 44
+const float CAM_H = 2.6;     // camera height above the cloud base (slab is 0..1)
+const float TOP = 1.05;
 
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+float noise(vec3 x) {
+  vec3 p = floor(x);
+  vec3 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  vec2 uv = (p.xy + vec2(37.0, 239.0) * p.z) + f.xy;
+  vec2 rg = texture2D(uNoise, (uv + 0.5) / 256.0).yx;
+  return mix(rg.x, rg.y, f.z);
 }
-float fbm(vec2 p) {
-  float v = 0.0, a = 0.5;
-  mat2 r = mat2(0.8, -0.6, 0.6, 0.8);
-  for (int i = 0; i < 5; i++) { v += a * noise(p); p = r * p * 2.03 + 11.7; a *= 0.5; }
-  return v;
+float noise2(vec2 x) { return noise(vec3(x, 0.5)); }
+
+// the flight: the cloud field slides past (+x), and slowly boils
+vec3 flow(vec3 p) { return p * vec3(0.55, 1.6, 0.55) + vec3(uTime * 0.42, 0.0, uTime * 0.03); }
+
+float density(vec3 p) {
+  vec3 q = flow(p);
+  float f = 0.5 * noise(q); q = q * 2.03 + vec3(1.7, 0.0, 3.1);
+  f += 0.25 * noise(q);     q = q * 2.01 + vec3(4.2, 0.0, 1.3);
+  f += 0.125 * noise(q);    q = q * 2.05;
+  f += 0.0625 * noise(q);
+  float y = p.y;
+  float d = (f - uCover) * 5.0 - y * 1.6 + 0.35;
+  return clamp(d, 0.0, 1.0) * smoothstep(0.0, 0.12, y) * (1.0 - smoothstep(TOP - 0.15, TOP, y));
+}
+float densityLow(vec3 p) {
+  vec3 q = flow(p);
+  float f = 0.5 * noise(q); q = q * 2.03 + vec3(1.7, 0.0, 3.1);
+  f += 0.25 * noise(q);
+  return clamp((f + 0.12 - uCover) * 5.0 - p.y * 1.6 + 0.35, 0.0, 1.0);
+}
+
+vec3 skyColor(vec3 rd, vec3 sunDir) {
+  float h = clamp(rd.y, 0.0, 1.0);
+  vec3 sky = mix(uHorizon, uZenith, pow(h, 0.45));
+  float sd = max(dot(rd, sunDir), 0.0);
+  sky += uSunCol * (pow(sd, 5.0) * 0.18 + pow(sd, 64.0) * 0.5) * (1.0 - uNight * 0.85);
+  sky += uSunCol * smoothstep(0.9994, 0.9998, sd) * 4.0 * step(-0.02, sunDir.y);
+  if (uNight > 0.01 && rd.y > 0.0) {
+    vec2 sp = rd.xy / max(rd.z, 0.2) * 260.0;
+    vec2 cell = floor(sp);
+    float st = step(0.987, hash(cell));
+    float tw = 0.7 + 0.3 * sin(uTime * (1.0 + hash(cell + 3.1) * 2.0) + hash(cell) * 40.0);
+    float d = length(fract(sp) - 0.5);
+    sky += vec3(0.85, 0.9, 1.0) * st * tw * smoothstep(0.2, 0.0, d) * uNight * smoothstep(0.0, 0.12, rd.y);
+  }
+  // thin cirrus far above
+  if (rd.y > 0.0) {
+    vec2 cp = rd.xz / rd.y * 1.6 + vec2(uTime * 0.01, 0.0);
+    float ci = noise2(cp * vec2(0.5, 1.4)) * 0.55 + noise2(cp * vec2(1.4, 3.5)) * 0.3 + noise2(cp * vec2(4.0, 9.0)) * 0.15;
+    float m = smoothstep(0.6, 0.95, ci) * smoothstep(0.02, 0.25, rd.y) * 0.22;
+    sky = mix(sky, mix(uCloudShade, uCloudLit, 0.85), m * (1.0 - uNight * 0.7));
+  }
+  return sky;
+}
+
+vec3 groundColor(vec3 rd, vec3 sunDir, float t) {
+  vec3 p = vec3(0.0, CAM_H, 0.0) + rd * t;
+  vec2 g = (p.xz + vec2(uTime * 0.42 / 0.55, 0.0)) * 0.12;      // moves with the clouds
+  float n = noise2(g * 3.0) * 0.6 + noise2(g * 9.0) * 0.3 + noise2(g * 27.0) * 0.1;
+  float land = smoothstep(0.52, 0.6, noise2(g * 0.8 + 11.0));
+  vec3 sea = uGround * vec3(0.55, 0.8, 1.15) * (0.85 + 0.3 * n);
+  vec3 earth = uGround * vec3(1.05, 1.0, 0.75) * (0.7 + 0.6 * n);
+  vec3 col = mix(sea, earth, land);
+  // sun glitter on the sea
+  vec3 refl = reflect(rd, vec3(0.0, 1.0, 0.0));
+  col += uSunCol * pow(max(dot(refl, sunDir), 0.0), 60.0) * 0.6 * (1.0 - land) * (1.0 - uNight);
+  // town lights at night
+  float towns = step(0.93, noise2(g * 40.0)) * land * uNight;
+  col += vec3(1.0, 0.72, 0.38) * towns * 0.8;
+  return col;
 }
 
 void main() {
   vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
   float c = cos(uBank), s = sin(uBank);
   uv = mat2(c, -s, s, c) * uv;
-  vec3 dir = normalize(vec3(uv.x * 1.05, uv.y * 1.05 + uPitch, 1.0));
+  vec3 rd = normalize(vec3(uv.x * 1.05, uv.y * 1.05 + uPitch, 1.0));
   vec3 sunDir = normalize(vec3(sin(uSunAz) * cos(uSunElev), sin(uSunElev), cos(uSunAz) * cos(uSunElev)));
-  float sd = max(dot(dir, sunDir), 0.0);
+  vec3 ro = vec3(0.0, CAM_H, 0.0);
+  vec3 sky = skyColor(rd, sunDir);
+  vec3 haze = mix(uHorizon, uCloudLit, 0.25) * (1.0 - uNight * 0.6);
 
-  // sky: zenith -> horizon, with a forward-scattering glow around the sun
-  float h = clamp(dir.y, 0.0, 1.0);
-  vec3 sky = mix(uHorizon, uZenith, pow(h, 0.42));
-  sky += uSunCol * (pow(sd, 6.0) * 0.22 + pow(sd, 48.0) * 0.45) * (1.0 - uNight * 0.85);
-  sky += uSunCol * smoothstep(0.99955, 0.99985, sd) * 3.0 * step(-0.02, sunDir.y);
-  if (uNight > 0.01 && dir.y > 0.0) {
-    vec2 sp = dir.xy / dir.z * 220.0;
-    vec2 cell = floor(sp);
-    float st = step(0.985, hash(cell));
-    float tw = 0.6 + 0.4 * sin(uTime * (1.0 + hash(cell + 3.1) * 3.0) + hash(cell) * 40.0);
-    float d = length(fract(sp) - 0.5);
-    sky += vec3(0.85, 0.9, 1.0) * st * tw * smoothstep(0.18, 0.0, d) * uNight * smoothstep(0.0, 0.15, dir.y);
-  }
   vec3 col = sky;
-
-  // high, thin cirrus streaks
-  if (dir.y > 0.0) {
-    float t = 2.4 / dir.y;
-    vec2 p = dir.xz * t;
-    p.x += uTime * 0.012;
-    float ci = fbm(p * vec2(0.09, 0.6));
-    float m = smoothstep(0.52, 0.86, ci) * smoothstep(0.0, 0.12, dir.y) * exp(-t * 0.02);
-    col = mix(col, mix(uCloudShade, uCloudLit, 0.8) + uSunCol * pow(sd, 6.0) * 0.3, m * 0.4);
+  if (rd.y < -0.004) {
+    // march only inside the slab of cloud
+    float t0 = (TOP - CAM_H) / rd.y;
+    float t1 = min((0.0 - CAM_H) / rd.y, 90.0);
+    float tg = (-0.35 - CAM_H) / rd.y;                  // the ground, a little below the cloud base
+    float dt = (t1 - t0) / float(STEPS);
+    float t = t0 + dt * hash(gl_FragCoord.xy + fract(uTime));
+    vec4 sum = vec4(0.0);
+    for (int i = 0; i < STEPS; i++) {
+      if (sum.a > 0.97) break;
+      vec3 p = ro + rd * t;
+      float d = density(p);
+      if (d > 0.01) {
+        float dl = densityLow(p + sunDir * 0.22 + vec3(0.0, 0.08, 0.0));
+        float lit = clamp(1.0 - (dl - d * 0.25) * 2.2, 0.0, 1.0);
+        lit = lit * lit;
+        float amb = 0.5 + 0.5 * smoothstep(0.0, TOP * 0.8, p.y);           // tops bright, bases grey
+        vec3 cc = mix(uCloudShade * amb, uCloudLit, lit * (0.45 + 0.55 * clamp(sunDir.y * 2.0 + 0.3, 0.0, 1.0)) * (0.6 + 0.4 * amb));
+        cc += uSunCol * pow(max(dot(rd, sunDir), 0.0), 3.0) * 0.35 * (1.0 - d) * (1.0 - uNight);   // silver lining
+        cc = mix(cc, haze, 1.0 - exp(-t * 0.028));
+        float a = 1.0 - exp(-d * dt * 7.0);
+        sum += vec4(cc * a, a) * (1.0 - sum.a);
+      }
+      t += dt;
+    }
+    vec3 ground = groundColor(rd, sunDir, tg);
+    ground = mix(ground, haze, 1.0 - exp(-tg * 0.035));
+    vec3 below = mix(ground, sky, smoothstep(-0.03, 0.0, rd.y));
+    col = sum.rgb + below * (1.0 - sum.a);
+    // the horizon melts into haze
+    col = mix(col, haze, smoothstep(-0.06, -0.004, rd.y) * 0.6);
   }
 
-  // the cloud deck below the plane
-  if (dir.y < 0.02) {
-    float dy = min(dir.y, -0.0005);
-    float t = 1.0 / -dy;
-    vec2 p = dir.xz * t;
-    p.x += uTime * 0.49;                       // flight speed (matches the drifting puffs)
-    float d = fbm(p * 0.42);
-    float cov = smoothstep(uCover, uCover + 0.22, d);
-    float d2 = fbm((p + sunDir.xz * 0.35) * 0.42);
-    float lit = clamp(0.52 + (d - d2) * 3.0 + sunDir.y * 0.25, 0.0, 1.0);
-    vec3 cloud = mix(uCloudShade, uCloudLit, lit);
-    cloud += uSunCol * pow(sd, 3.0) * 0.18 * cov;                       // silver lining toward the sun
-    vec3 ground = uGround * (0.75 + 0.5 * noise(p * 0.08));
-    vec3 surf = mix(ground, cloud, cov);
-    float fog = 1.0 - exp(-t * 0.055);
-    col = mix(surf, uHorizon, fog);
-    col = mix(col, sky, smoothstep(-0.004, 0.02, dir.y));
-  }
-
-  // soft filmic curve + tiny grain so gradients never band
-  col = col / (1.0 + col * 0.18);
+  col = col / (1.0 + col * 0.15);
   col += (hash(gl_FragCoord.xy + uTime) - 0.5) / 255.0;
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-const PUFF_VERT = `
-attribute vec3 aCenter;     // world position (x right, y up, z away from the window)
-attribute vec2 aCorner;     // -1..1
-attribute vec4 aInfo;       // half-width, half-height, atlas cell, opacity
-uniform vec2 uRes;
-uniform float uPitch;
-uniform float uBank;
-varying vec2 vUv;
-varying float vAlpha;
-varying float vDepth;
-varying float vH;
-void main() {
-  vec3 p = aCenter + vec3(aCorner.x * aInfo.x, aCorner.y * aInfo.y, 0.0);
-  vec2 uv = vec2(p.x / p.z, (p.y / p.z - uPitch)) / 1.05;      // the sky shader's projection
-  float c = cos(uBank), s = sin(uBank);
-  uv = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
-  gl_Position = vec4(uv.x * 2.0 * uRes.y / uRes.x, uv.y * 2.0, 0.0, 1.0);
-  float cell = aInfo.z;
-  vUv = (vec2(mod(cell, 2.0), floor(cell / 2.0)) + (aCorner * 0.5 + 0.5)) * 0.5;
-  vH = aCorner.y * 0.5 + 0.5;
-  vDepth = aCenter.z;
-  // fade in from the haze far away, and out just before a puff reaches the glass
-  vAlpha = aInfo.w * smoothstep(2.0, 6.0, aCenter.z) * (1.0 - smoothstep(110.0, 170.0, aCenter.z));
-}`;
-
-const PUFF_FRAG = `
-precision mediump float;
-uniform sampler2D uTex;
-uniform vec3 uLit;
-uniform vec3 uShade;
-uniform vec3 uSunCol;
-uniform vec3 uHaze;
-uniform float uSunSide;     // -1 sun to the left .. 1 to the right
-uniform float uNight;
-varying vec2 vUv;
-varying float vAlpha;
-varying float vDepth;
-varying float vH;
-void main() {
-  vec4 t = texture2D(uTex, vUv);              // r = light (self-shadowed), a = density
-  float a = t.a * vAlpha;
-  if (a < 0.004) discard;
-  // thin edges let the light through, so they read bright rather than outlined
-  float light = clamp(t.r * 0.85 + vH * 0.2, 0.0, 1.0);
-  vec3 col = mix(uShade, uLit, light);
-  // silver lining on the thin edges facing the sun
-  col += uSunCol * (1.0 - t.a) * 0.18 * max(0.0, 0.5 + uSunSide * (vUv.x - 0.25)) * (1.0 - uNight);
-  col = mix(col, uHaze, (1.0 - exp(-vDepth * 0.0065)) * 0.85);
-  gl_FragColor = vec4(col * a, a);            // premultiplied
-}`;
-
-/** Soft cloud puffs: four variants in a 2×2 atlas. r = lit side (self-shadowed), a = density. */
-function puffAtlas(size = 256) {
-  const N = size * 2;
-  const data = new Uint8ClampedArray(N * N * 4);
-  let seed = 7;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const lat = new Float32Array(33 * 33).map(() => rnd());
-  const vnoise = (x, y) => {
-    const xi = Math.floor(x) & 31, yi = Math.floor(y) & 31, xf = x - Math.floor(x), yf = y - Math.floor(y);
-    const sx = xf * xf * (3 - 2 * xf), sy = yf * yf * (3 - 2 * yf);
-    const g = (i, j) => lat[((j & 31) * 33) + (i & 31)];
-    return (g(xi, yi) * (1 - sx) + g(xi + 1, yi) * sx) * (1 - sy) + (g(xi, yi + 1) * (1 - sx) + g(xi + 1, yi + 1) * sx) * sy;
-  };
-  const fbm = (x, y) => vnoise(x, y) * 0.5 + vnoise(x * 2.1 + 5, y * 2.1 + 3) * 0.28 + vnoise(x * 4.3 + 9, y * 4.3 + 1) * 0.15 + vnoise(x * 8.7, y * 8.7) * 0.07;
-  for (let v = 0; v < 4; v++) {
-    // a cauliflower of overlapping blobs, flatter at the base
-    const blobs = Array.from({ length: 9 + v * 2 }, () => {
-      const bx = 0.22 + rnd() * 0.56, by = 0.26 + rnd() * 0.3;
-      return [bx, by, 0.12 + rnd() * 0.14 * (1 - Math.abs(bx - 0.5))];
-    });
-    const dens = (x, y) => {
-      let d = 0;
-      for (const [bx, by, r] of blobs) { const q = ((x - bx) ** 2 + ((y - by) * 1.15) ** 2) / (r * r); d += Math.exp(-q * 1.6); }
-      // cauliflower edges: big lumps, then fine billows eating into the rim
-      d *= 0.5 + 0.8 * fbm(x * 5 + v * 7, y * 5 + v * 3);
-      d -= (fbm(x * 11 + v, y * 11 - v) - 0.45) * 0.26;
-      d *= Math.min(1, Math.max(0, (0.92 - y) * 6)) * Math.min(1, Math.max(0, y * 9));
-      d *= Math.min(1, Math.max(0, Math.min(x, 1 - x) * 7));
-      const e = Math.max(0, Math.min(1, (d - 0.16) / 0.5));
-      return e * e * (3 - 2 * e);
-    };
-    const ox = (v % 2) * size, oy = Math.floor(v / 2) * size;
-    // shade the puff as a lumpy height field lit from above: bright tops, shadowed folds
-    const D = new Float32Array(size * size);
-    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) D[y * size + x] = dens(x / size, 1 - y / size);
-    const Lx = 0.35, Ly = 0.62, Lz = 0.7;
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const at = (xx, yy) => D[Math.min(size - 1, Math.max(0, yy)) * size + Math.min(size - 1, Math.max(0, xx))];
-        const d = at(x, y);
-        const gx = (at(x + 2, y) - at(x - 2, y)) * 9, gy = (at(x, y - 2) - at(x, y + 2)) * 9;   // +y = up
-        const nl = Math.hypot(gx, gy, 1);
-        const lam = Math.max(0, (-gx * Lx - gy * Ly + Lz) / nl);
-        const i = ((oy + y) * N + ox + x) * 4;
-        data[i] = Math.round(255 * Math.min(1, 0.25 + 0.85 * lam));
-        data[i + 1] = data[i + 2] = 0;
-        data[i + 3] = Math.round(255 * d);
-      }
-    }
+/** 256² noise for 3D lookups: G is R shifted by (37, 239) so one fetch spans two z-slices. */
+function noiseTexture() {
+  const N = 256, r = new Uint8Array(N * N);
+  let seed = 1234567;
+  for (let i = 0; i < r.length; i++) { seed = (seed * 16807) % 2147483647; r[i] = seed & 255; }
+  const data = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const i = (y * N + x) * 4;
+    data[i] = r[y * N + x];
+    data[i + 1] = r[((y - 239) & 255) * N + ((x - 37) & 255)];
+    data[i + 3] = 255;
   }
-  return { data, N };
+  return data;
 }
 
 export class WindowView {
@@ -224,8 +193,8 @@ export class WindowView {
       this.target.x = Math.max(-35, Math.min(35, e.gamma));
       this.target.y = Math.max(-30, Math.min(30, (e.beta ?? 60) - 60));
     };
+    this.scale = 0.6;            // render scale vs CSS pixels; adapts to the device
     this.initGL();
-    this.initPuffs();
     this.setupShade();
     new ResizeObserver(() => this.resize()).observe(this.canvas);
   }
@@ -253,121 +222,35 @@ export class WindowView {
     this.skyProg = prog; this.skyBuf = buf; this.skyLoc = loc;
     this.gl = gl;
     this.u = {};
-    for (const n of ["uRes", "uTime", "uSunElev", "uSunAz", "uBank", "uPitch", "uNight", "uCover", "uZenith", "uHorizon", "uSunCol", "uCloudLit", "uCloudShade", "uGround"]) {
-      this.u[n] = gl.getUniformLocation(prog, n);
-    }
-  }
-
-  /* ---------- cloud puffs ---------- */
-
-  initPuffs() {
-    const gl = this.gl;
-    if (!gl) return;
-    const sh = (type, src) => { const x = gl.createShader(type); gl.shaderSource(x, src); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) console.warn(gl.getShaderInfoLog(x)); return x; };
-    const prog = gl.createProgram();
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, PUFF_VERT));
-    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, PUFF_FRAG));
-    gl.linkProgram(prog);
-    this.puffProg = prog;
-    this.pu = {};
-    for (const n of ["uRes", "uPitch", "uBank", "uTex", "uLit", "uShade", "uSunCol", "uHaze", "uSunSide", "uNight"]) this.pu[n] = gl.getUniformLocation(prog, n);
-    this.pa = { center: gl.getAttribLocation(prog, "aCenter"), corner: gl.getAttribLocation(prog, "aCorner"), info: gl.getAttribLocation(prog, "aInfo") };
-    const { data, N } = puffAtlas();
-    this.puffTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.puffTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, N, N, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(data.buffer));
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 256, 0, gl.RGBA, gl.UNSIGNED_BYTE, noiseTexture());
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    // the field: a deck of puffs below, and a few wisps at our own height
-    this.puffs = [];
-    for (let i = 0; i < 64; i++) this.puffs.push(this.spawn({ deck: true }, true));
-    for (let i = 0; i < 5; i++) this.puffs.push(this.spawn({ deck: false }, true));
-    this.puffBuf = gl.createBuffer();
-    this.puffData = new Float32Array(this.puffs.length * 6 * 9);
-  }
-
-  /** A new puff, just beyond the right-hand edge of the view (or anywhere at start). */
-  spawn(kind, anywhere = false) {
-    const r = Math.random;
-    let z, y, w;
-    if (kind.deck) {
-      z = 9 + Math.pow(r(), 1.4) * 150;
-      y = -6 - r() * 1.6 + (this.coverY || 0);
-      w = 3.5 + r() * 5 + z * 0.02;
-    } else {
-      z = 3 + r() * 14;
-      y = -1.6 + r() * 2.4;
-      w = 2.5 + r() * 4;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    for (const n of ["uRes", "uTime", "uSunElev", "uSunAz", "uBank", "uPitch", "uNight", "uCover", "uZenith", "uHorizon", "uSunCol", "uCloudLit", "uCloudShade", "uGround", "uNoise"]) {
+      this.u[n] = gl.getUniformLocation(prog, n);
     }
-    const xr = z * 0.42 + w;                 // half the visible width at that depth, plus the puff
-    return {
-      deck: kind.deck, z, y, w, h: w * (kind.deck ? 0.5 + r() * 0.2 : 0.35 + r() * 0.2),
-      x: anywhere ? (r() * 2 - 1) * xr * 1.3 : xr * (1 + r() * 0.5),
-      cell: Math.floor(r() * 4), a: kind.deck ? 0.9 + r() * 0.1 : 0.16 + r() * 0.2, xr,
-    };
-  }
-
-  drawPuffs(dt, bank, pitch) {
-    const gl = this.gl;
-    if (!this.puffProg) return;
-    const v = reducedMotion() ? 0 : 3.2;     // world units per second; parallax does the rest
-    for (let i = 0; i < this.puffs.length; i++) {
-      const p = this.puffs[i];
-      p.x -= v * dt;
-      if (p.x < -p.xr * 1.15) this.puffs[i] = this.spawn(p);
-    }
-    this.puffs.sort((a, b) => b.z - a.z);    // far to near
-    const d = this.puffData;
-    const corners = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
-    let o = 0;
-    for (const p of this.puffs) {
-      for (const [cx, cy] of corners) {
-        d[o++] = p.x; d[o++] = p.y; d[o++] = p.z;
-        d[o++] = cx; d[o++] = cy;
-        d[o++] = p.w; d[o++] = p.h; d[o++] = p.cell; d[o++] = p.a;
-      }
-    }
-    gl.useProgram(this.puffProg);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.puffBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, d, gl.DYNAMIC_DRAW);
-    const st = 9 * 4, a = this.pa;
-    gl.enableVertexAttribArray(a.center); gl.vertexAttribPointer(a.center, 3, gl.FLOAT, false, st, 0);
-    gl.enableVertexAttribArray(a.corner); gl.vertexAttribPointer(a.corner, 2, gl.FLOAT, false, st, 12);
-    gl.enableVertexAttribArray(a.info); gl.vertexAttribPointer(a.info, 4, gl.FLOAT, false, st, 20);
-    const u = this.pu, L = this.look;
-    gl.uniform2f(u.uRes, this.canvas.width, this.canvas.height);
-    gl.uniform1f(u.uPitch, pitch);
-    gl.uniform1f(u.uBank, bank);
-    gl.uniform3fv(u.uLit, L.cloudLit);
-    gl.uniform3fv(u.uShade, L.cloudShade);
-    gl.uniform3fv(u.uSunCol, L.sun);
-    gl.uniform3fv(u.uHaze, L.horizon);
-    gl.uniform1f(u.uSunSide, Math.sin(this.sunAz || 0));
-    gl.uniform1f(u.uNight, L.night);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.puffTex);
-    gl.uniform1i(u.uTex, 0);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.drawArrays(gl.TRIANGLES, 0, this.puffs.length * 6);
-    gl.disable(gl.BLEND);
-    // hand the state back to the sky pass
-    gl.disableVertexAttribArray(a.corner); gl.disableVertexAttribArray(a.info);
-    gl.useProgram(this.skyProg);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);
-    gl.enableVertexAttribArray(this.skyLoc);
-    gl.vertexAttribPointer(this.skyLoc, 2, gl.FLOAT, false, 0, 0);
   }
 
   resize() {
     const r = this.canvas.getBoundingClientRect();
     if (!r.width) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.25);    // soft sky and clouds need few pixels
-    this.canvas.width = Math.round(r.width * dpr);
-    this.canvas.height = Math.round(r.height * dpr);
+    // clouds are soft: a reduced buffer, scaled up by the browser, looks the same and costs a fraction
+    this.canvas.width = Math.max(64, Math.round(r.width * this.scale));
+    this.canvas.height = Math.max(64, Math.round(r.height * this.scale));
     this.gl?.viewport(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  /** Keep the march on time: shrink the buffer when frames run late, grow it back when there's room. */
+  adapt(dt) {
+    this.ema = this.ema ? this.ema * 0.9 + dt * 0.1 : dt;
+    const now = performance.now();
+    if (now - (this.lastAdapt || 0) < 1500) return;
+    const max = Math.min(1, (window.devicePixelRatio || 1) * 0.5);
+    if (this.ema > 0.024 && this.scale > 0.34) { this.scale = Math.max(0.34, this.scale * 0.85); this.lastAdapt = now; this.resize(); }
+    else if (this.ema < 0.0175 && this.scale < max && now - (this.lastAdapt || 0) > 5000) { this.scale = Math.min(max, this.scale * 1.12); this.lastAdapt = now; this.resize(); }
   }
 
   show(on) {
@@ -397,7 +280,7 @@ export class WindowView {
       this.sunAz = (((az - (heading - 90)) + 540) % 360 - 180) * RAD;
       this.elev = elev;
       this.look = look(elev);
-      this.cover = 0.42 + 0.12 * Math.sin(lat * 0.07 + lng * 0.05);   // cloudiness varies along the route
+      this.cover = 0.47 + 0.07 * Math.sin(lat * 0.07 + lng * 0.05);   // cloudiness varies along the route
       const st = this.root.style;
       st.setProperty("--day", this.look.day.toFixed(3));
       st.setProperty("--sky-tint", `rgb(${this.look.horizon.map((v) => Math.round(v * 255)).join(",")})`);
@@ -426,8 +309,9 @@ export class WindowView {
     gl.uniform3fv(u.uCloudLit, L.cloudLit);
     gl.uniform3fv(u.uCloudShade, L.cloudShade);
     gl.uniform3fv(u.uGround, L.ground);
+    gl.uniform1i(u.uNoise, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    this.drawPuffs(dt, bank, pitch);
+    this.adapt(dt);
   }
 
   /** CSS variables for the wing and bezel, written only when they change (no restyle per frame). */
