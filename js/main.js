@@ -40,7 +40,9 @@ function show(screen) {
   const prev = app.dataset.screen;
   const apply = () => { app.dataset.screen = screen; };
   // calm frame rates where the globe is only a backdrop (flight sets its own)
-  const fps = { departure: 60, checkin: 15, pass: 15, logbook: 10, landing: 60 }[screen];
+  // landscape keeps the globe in view beside the panel, so it gets the full rate there too
+  const side = innerWidth > innerHeight && innerWidth >= 820;
+  const fps = { departure: 60, checkin: side ? 60 : 15, pass: side ? 60 : 15, logbook: side ? 60 : 10, landing: 60 }[screen];
   if (fps && globeView) globeView.setFps(fps);
   const morph = document.startViewTransition && prev !== "boot" && prev !== screen &&
     !matchMedia("(prefers-reduced-motion: reduce)").matches;

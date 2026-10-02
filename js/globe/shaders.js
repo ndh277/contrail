@@ -315,7 +315,8 @@ export const deckFragment = /* glsl */ `
     float self = clamp(0.62 + (detail - d2 * 0.9) * 2.2, 0.3, 1.0);
     float cosSun = dot(n, sunDirection);
     float light = smoothstep(-0.12, 0.3, cosSun);
-    vec3 col = mix(vec3(0.05, 0.06, 0.09), vec3(1.0, 0.99, 0.97) * self + vec3(0.12, 0.14, 0.2) * (1.0 - self), light);
+    // night: moonlit grey-blue tops instead of black
+    vec3 col = mix(vec3(0.13, 0.15, 0.22) * (0.6 + 0.4 * self), vec3(1.0, 0.99, 0.97) * self + vec3(0.12, 0.14, 0.2) * (1.0 - self), light);
     col = mix(col, vec3(1.0, 0.62, 0.4) * self, exp(-pow((cosSun - 0.03) / 0.1, 2.0)) * 0.5);
     float haze = 1.0 - exp(-distance(cameraPosition, vWorldPos) / uHazeDist);
     col = mix(col, uHaze * (0.08 + 0.92 * light), haze * 0.8);
@@ -343,9 +344,11 @@ export const airSkyFragment = /* glsl */ `
     col += uSunCol * (pow(sd, 6.0) * 0.22 + pow(sd, 60.0) * 0.5) * (1.0 - uNight * 0.85);
     col += uSunCol * smoothstep(0.9996, 0.99985, sd) * 3.0 * step(-0.02, dot(sunDirection, uUp));
     if (uNight > 0.01) {
-      vec3 cell = floor(d * 260.0);
+      vec3 sp = d * 260.0;
+      vec3 cell = floor(sp);
       float st = step(0.992, hash3(cell)) * smoothstep(0.0, 0.2, e);
-      col += vec3(0.85, 0.9, 1.0) * st * uNight * 0.8;
+      float dist = length(fract(sp) - 0.5);                    // a soft round point, not a cell
+      col += vec3(0.85, 0.9, 1.0) * st * smoothstep(0.32, 0.0, dist) * uNight * 0.9;
     }
     gl_FragColor = vec4(col, 1.0);
   }

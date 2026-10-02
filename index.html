@@ -304,12 +304,20 @@
       </nav>
       <section class="backup">
         <h3>Backup</h3>
-        <p>Your flights live on this device. Save a copy now and then — it also moves your log to another device.</p>
-        <div class="backup-actions">
-          <button class="btn ghost" id="export-btn">Export JSON</button>
-          <button class="btn ghost" id="import-btn">Import JSON</button>
-          <input type="file" id="import-file" accept="application/json,.json" hidden>
-        </div>
+        <ul class="inset-list backup-list">
+          <li><button class="backup-row" id="export-btn">
+            <span class="backup-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="backup-txt"><b>Save a backup</b><small id="backup-sub">A small file with every flight and stamp</small></span>
+            <svg class="chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 6.5 7l-5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button></li>
+          <li><button class="backup-row" id="import-btn">
+            <span class="backup-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="backup-txt"><b>Restore from a file</b><small>Adds the flights you don't have yet</small></span>
+            <svg class="chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 6.5 7l-5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button></li>
+        </ul>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <p class="list-foot">Your log lives on this device. A backup also moves it to another one.</p>
       </section>
     </section>
 

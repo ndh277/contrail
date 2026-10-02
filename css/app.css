@@ -1123,11 +1123,18 @@ input[type="search"], input[type="text"] {
 .log-detail .dot { display: inline-block; width: 7px; height: 7px; border-radius: 2px; background: var(--tag); margin-right: 5px; }
 .log-empty { color: var(--ink-500); font-size: var(--fs-sm); padding: 30px 0; text-align: center; }
 
-.backup { padding: 12px 0 calc(var(--safe-bottom) + 20px); }
-.backup h3 { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400; letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--text-low); margin-bottom: 4px; }
-.backup p { font-size: var(--fs-sm); color: var(--text-mid); margin-bottom: 10px; }
-.backup-actions { display: flex; gap: 10px; }
-.backup-actions .btn { flex: 1; }
+.backup { padding: 18px 0 calc(var(--safe-bottom) + 20px); }
+.backup h3 { margin: 0 4px 8px; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-low); }
+.backup .list-foot { margin-top: -8px; }
+.backup-row { width: 100%; min-height: 62px; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 12px; text-align: left; transition: background 0.2s; }
+.backup-row:active { background: var(--fill-2); }
+@media (hover: hover) { .backup-row:hover { background: var(--fill-2); } }
+.backup-ico { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #1a1206; background: var(--accent-grad, var(--accent)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.backup-ico svg { width: 19px; height: 19px; }
+#import-btn .backup-ico { background: linear-gradient(180deg, #8fb2e8, #5f86c8); color: #0d1626; }
+.backup-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.backup-txt b { font-weight: 600; }
+.backup-txt small { font-size: var(--fs-xs); color: var(--text-low); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ================= live window: the 3D globe framed by the pane ================= */
 .window-view.is-external .sky-canvas { display: none; }

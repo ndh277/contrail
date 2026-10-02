@@ -38,6 +38,8 @@ export class Logbook {
 
   async open() {
     this.flights = await allFlights();
+    const nf = this.flights.length;
+    this.$("#backup-sub").textContent = nf ? `${nf} flight${nf === 1 ? "" : "s"} and their stamps, in one small file` : "A small file with every flight and stamp";
     this.render();
   }
 
@@ -197,6 +199,19 @@ export class Logbook {
     setTimeout(() => moving?.classList.remove("is-turning"), 800);
     this.page = next;
     this.layout();
+    // The same explicit animation both ways, with the turning page kept on top until it
+    // lands (forward it would otherwise drop under the next page and turn out of sight).
+    if (moving && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const from = dir > 0 ? 0 : -180, to = dir > 0 ? -180 : 0;
+      this.book.classList.add("no-motion");
+      moving.style.zIndex = 500;
+      moving.getAnimations().forEach((a) => a.cancel());
+      const anim = moving.animate(
+        [{ transform: `rotateY(${from}deg)` }, { transform: `rotateY(${(from + to) / 2}deg) translateZ(1px)`, offset: 0.5 }, { transform: `rotateY(${to}deg)` }],
+        { duration: 760, easing: "cubic-bezier(.45, .05, .25, 1)" },
+      );
+      anim.finished.then(() => { this.book.classList.remove("no-motion"); this.layout(); }).catch(() => {});
+    }
     sfx.strain();
     haptic("tap");
   }

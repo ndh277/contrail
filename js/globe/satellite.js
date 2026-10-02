@@ -31,6 +31,7 @@ const tileVertex = /* glsl */ `
 `;
 const tileFragment = /* glsl */ `
   uniform sampler2D map;
+  uniform sampler2D nightMap;   // Black Marble city lights, for the night side
   uniform vec3 sunDirection;
   uniform float uFade;
   uniform float uRing;
@@ -42,13 +43,19 @@ const tileFragment = /* glsl */ `
   varying float vEdge;
   void main() {
     vec3 c = texture2D(map, vUv).rgb;
-    float cosSun = dot(normalize(vNormal), sunDirection);
+    vec3 nrm = normalize(vNormal);
+    float cosSun = dot(nrm, sunDirection);
     float light = smoothstep(-0.1, 0.25, cosSun);
-    vec3 col = c * (0.04 + 1.0 * light) * vec3(1.0, 0.98, 0.95);
+    // night: faint blue moonlight on the land, and the real city lights glowing through
+    float lat = asin(clamp(nrm.y, -1.0, 1.0));
+    float lng = 1.5707963 - atan(nrm.z, nrm.x);
+    vec3 lights = texture2D(nightMap, vec2(fract(lng / 6.2831853 + 0.5), lat / 3.1415927 + 0.5)).rgb;
+    vec3 moon = c * vec3(0.2, 0.26, 0.4) + vec3(0.012, 0.018, 0.035) + lights * vec3(1.35, 1.05, 0.7) * 1.8;
+    vec3 col = mix(moon, c * vec3(1.0, 0.98, 0.95), light);
     col = mix(col, col * vec3(1.05, 0.8, 0.62), exp(-pow(cosSun / 0.12, 2.0)) * 0.6);
     float d = distance(cameraPosition, vWorldPos);
     float haze = 1.0 - exp(-d / uHazeDist);
-    col = mix(col, uHaze * (0.08 + 0.92 * light), haze * 0.85);
+    col = mix(col, uHaze * (0.12 + 0.88 * light), haze * 0.85);
     float edge = 1.0 - smoothstep(uRing - 0.9, uRing + 0.35, vEdge);
     gl_FragColor = vec4(col, edge * uFade);
   }
@@ -75,6 +82,7 @@ export class SatelliteLayer {
     this.levels = [{ z: 7, ring: 3 }, { z: 9, ring: 3 }, { z: 11, ring: 2 }];
     this.haze = new THREE.Color("#b9cde6");
     this.hazeDist = 8;
+    this.ready = [];          // decoded tiles waiting to go to the GPU (a couple per frame)
   }
 
   get available() { return !(this.failures > 6 && this.successes === 0) && navigator.onLine !== false; }
@@ -94,29 +102,41 @@ export class SatelliteLayer {
   /** Keep the tile rings centred on a point. Cheap to call every frame. */
   update(lat, lng) {
     if (!this.group.visible) return;
-    const want = new Set();
-    for (const [li, { z, ring }] of this.levels.entries()) {
-      const cx = Math.floor(lon2x(lng, z)), cy = Math.floor(lat2y(Math.max(-84, Math.min(84, lat)), z));
-      const fx = lon2x(lng, z), fy = lat2y(lat, z);
-      for (let dy = -ring; dy <= ring; dy++) {
-        for (let dx = -ring; dx <= ring; dx++) {
-          const n = 2 ** z;
-          const x = ((cx + dx) % n + n) % n, y = cy + dy;
-          if (y < 0 || y >= n) continue;
-          const key = `${z}/${x}/${y}`;
-          want.add(key);
-          let t = this.tiles.get(key);
-          if (!t) t = this.addTile(z, x, y, li);
-          const u = t.mesh.material.uniforms;
-          u.uRing.value = ring;
-          u.uCenter.value.set(fx, fy);
-          u.uN.value = n;
-          u.uFade.value = t.loadedAt ? Math.min(1, (performance.now() - t.loadedAt) / 500) : 0;
+    // hand decoded tiles to the GPU a couple at a time, so uploads never pile into one frame
+    for (let k = 0; k < 2 && this.ready.length; k++) {
+      const { t, tex } = this.ready.shift();
+      if (!this.tiles.has(`${t.z}/${t.x}/${t.y}`)) { tex.dispose(); continue; }
+      t.mesh.material.uniforms.map.value = tex;
+      t.loadedAt = performance.now();
+    }
+    // which tiles we need only changes when the plane crosses a tile edge: work it out
+    // a few times a second; per frame just slide the rings' centre and fade tiles in
+    const now = performance.now();
+    if (!this.lastPlan || now - this.lastPlan > 200) {
+      this.lastPlan = now;
+      const want = new Set();
+      for (const [li, { z, ring }] of this.levels.entries()) {
+        const cx = Math.floor(lon2x(lng, z)), cy = Math.floor(lat2y(Math.max(-84, Math.min(84, lat)), z));
+        for (let dy = -ring; dy <= ring; dy++) {
+          for (let dx = -ring; dx <= ring; dx++) {
+            const n = 2 ** z;
+            const x = ((cx + dx) % n + n) % n, y = cy + dy;
+            if (y < 0 || y >= n) continue;
+            const key = `${z}/${x}/${y}`;
+            want.add(key);
+            let t = this.tiles.get(key);
+            if (!t) t = this.addTile(z, x, y, li);
+            t.ring = ring;
+          }
         }
       }
+      for (const [key, t] of this.tiles) if (!want.has(key)) this.removeTile(key, t);
     }
-    for (const [key, t] of this.tiles) {
-      if (!want.has(key)) this.removeTile(key, t);
+    for (const t of this.tiles.values()) {
+      const u = t.mesh.material.uniforms;
+      u.uRing.value = t.ring ?? 3;
+      u.uCenter.value.set(lon2x(lng, t.z), lat2y(lat, t.z));
+      u.uFade.value = t.loadedAt ? Math.min(1, (now - t.loadedAt) / 500) : 0;
     }
   }
 
@@ -149,7 +169,7 @@ export class SatelliteLayer {
     geo.setIndex(idx);
     const mat = new THREE.ShaderMaterial({
       uniforms: {
-        map: { value: null }, sunDirection: this.view.material.uniforms.sunDirection,
+        map: { value: null }, nightMap: this.view.material.uniforms.nightTexture, sunDirection: this.view.material.uniforms.sunDirection,
         uFade: { value: 0 }, uRing: { value: 3 }, uCenter: { value: new THREE.Vector2() }, uN: { value: 2 ** z },
         uHaze: { value: this.haze.clone() }, uHazeDist: { value: this.hazeDist },
       },
@@ -162,14 +182,27 @@ export class SatelliteLayer {
     const t = { mesh, z, x, y, born: performance.now() };
     this.tiles.set(`${z}/${x}/${y}`, t);
     this.group.add(mesh);
-    this.loader.load(URL(z, x, y), (tex) => {
-      if (!this.tiles.has(`${z}/${x}/${y}`)) { tex.dispose(); return; }
-      tex.anisotropy = 4;
-      mat.uniforms.map.value = tex;
-      t.loadedAt = performance.now();
+    this.fetchTile(URL(z, x, y)).then((tex) => {
       this.successes++;
-    }, undefined, () => { this.failures++; });
+      if (!this.tiles.has(`${z}/${x}/${y}`)) { tex.dispose(); return; }
+      this.ready.push({ t, tex });
+    }).catch(() => { this.failures++; });
     return t;
+  }
+
+  /** Download and decode a tile off the main thread (ImageBitmap); falls back to an <img>. */
+  async fetchTile(url) {
+    if (typeof createImageBitmap !== "function") {
+      return new Promise((ok, fail) => this.loader.load(url, (tex) => { tex.anisotropy = 4; ok(tex); }, undefined, fail));
+    }
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error(res.status);
+    const bmp = await createImageBitmap(await res.blob(), { imageOrientation: "flipY" });
+    const tex = new THREE.Texture(bmp);
+    tex.flipY = false;                 // already flipped while decoding
+    tex.anisotropy = 4;
+    tex.needsUpdate = true;
+    return tex;
   }
 
   removeTile(key, t) {
