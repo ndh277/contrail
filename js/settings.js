@@ -11,7 +11,8 @@ const DEFAULTS = {
   haptics: true,
   theme: "auto",          // auto | night | day
   quality: "auto",        // auto | high | medium | low
-  units: "mi",            // mi | km (logbook)
+  units: "nm",            // nm | mi | km (logbook)
+  unitsV: 2,              // bumped when the default unit changed to nautical miles
   lastTagId: null,
   lastDuration: 25,
   hubsOnly: false,
@@ -39,7 +40,10 @@ const listeners = new Set();
 export function onSettingsChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 export async function loadSettings() {
-  Object.assign(settings, DEFAULTS, await kvGet("settings", {}));
+  const stored = await kvGet("settings", {});
+  Object.assign(settings, DEFAULTS, stored);
+  // the logbook speaks aviation: nautical miles by default (once; later choices stick)
+  if (stored.unitsV !== 2) { settings.units = "nm"; settings.unitsV = 2; }
   const saved = await kvGet("tags", null);
   if (Array.isArray(saved) && saved.length) tags = saved;
   return settings;

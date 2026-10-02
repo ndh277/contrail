@@ -72,7 +72,7 @@ h1, h2, h3, p { margin: 0; }
   display: grid;
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   background: #02030a;
-  overflow: hidden;
+  overflow: hidden; overflow: clip;   /* clip: nothing can scroll the stage sideways */
 }
 /* everything stacks in one cell over a full-bleed globe, iOS-Maps style */
 .app > * { grid-area: 1 / 1; min-width: 0; }
@@ -720,7 +720,7 @@ input[type="search"], input[type="text"] {
 
 /* ================= window view ================= */
 .window-view {
-  position: absolute; inset: 0; z-index: 2;
+  position: absolute; inset: 0; z-index: 2; overflow: clip;
   visibility: hidden; opacity: 0;
   transition: opacity 0.7s var(--ease-ios), visibility 0s linear 0.7s;
   --day: 0; --shade: 0; --bank: 0deg; --parallax: 0px; --sky-tint: #1a2440;
@@ -968,14 +968,19 @@ input[type="search"], input[type="text"] {
 .landing .btn.ghost { color: #eef1f8; border-color: rgba(196, 214, 255, 0.25); }
 
 /* ================= logbook / passport ================= */
-.logbook { align-items: stretch; }
+.logbook {
+  align-items: stretch;
+  /* pebbled hide: lit noise, blended soft-light over the cover colour */
+  --leather-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='l' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' seed='3' stitchTiles='stitch'/%3E%3CfeDiffuseLighting surfaceScale='1.8' lighting-color='%23fff'%3E%3CfeDistantLight azimuth='225' elevation='48'/%3E%3C/feDiffuseLighting%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23l)'/%3E%3C/svg%3E");
+}
 .passport-cover {
   position: relative;
   display: flex; align-items: baseline; justify-content: space-between;
   padding: 14px 18px; border-radius: 14px 14px 0 0;
   background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='l'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23l)' opacity='.55'/%3E%3C/svg%3E"),
+    var(--leather-grain),
     radial-gradient(120% 140% at 30% 0%, #1d3a52, #0f2233 55%, #0a1824);
+  background-blend-mode: soft-light, normal;
   color: #e0bd72;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -8px 16px rgba(0, 0, 0, 0.25);
 }
@@ -988,7 +993,8 @@ input[type="search"], input[type="text"] {
 .passport {
   position: relative; height: min(64dvh, 620px); min-height: 440px;
   border-radius: 0 0 14px 14px;
-  background: radial-gradient(120% 80% at 50% 0%, #142c40, #0b1a27); padding: 6px 6px 8px;
+  background: var(--leather-grain), radial-gradient(120% 80% at 50% 0%, #142c40, #0b1a27); padding: 6px 6px 8px;
+  background-blend-mode: soft-light, normal;
   box-shadow: 0 24px 50px -16px rgba(0, 0, 0, 0.6);
   touch-action: pan-y;
 }
@@ -1118,6 +1124,8 @@ input[type="search"], input[type="text"] {
 .app[data-screen="landing"] .landing-card { view-transition-name: flight-card; }
 .app[data-screen="departure"] #logbook-btn { view-transition-name: passport; }
 .app[data-screen="logbook"] .passport-cover { view-transition-name: passport; }
+/* after landing, the fresh stamp flies home into the passport button */
+.app[data-screen="landing"] #stamp-slot:not([hidden]) .stamp { view-transition-name: passport; }
 
 /* ================= immersive in flight: the HUD steps aside ================= */
 .hud-top, .hud-bottom { transition: transform 0.7s var(--ease-ios), opacity 0.5s; }

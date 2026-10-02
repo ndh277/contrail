@@ -78,7 +78,7 @@ export class Logbook {
 
   identityPage(list) {
     const s = stats(list);
-    const unit = UNITS[settings.units] || UNITS.mi;
+    const unit = UNITS[settings.units] || UNITS.nm;
     const dist = s.km / unit.km;
     return `
       <header class="phead"><span class="ptitle">Holder</span><span class="pcode">P&lt;VNM</span></header>

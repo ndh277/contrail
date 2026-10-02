@@ -75,7 +75,7 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 
 ### 4.7 Logbook (passport)
 - Passport-style pages with a page-turn interaction.
-- Stamp collection grid. Stats: total hours, total **miles** (km toggle), flights, unlocked cities, current streak.
+- Stamp collection grid. Stats: total hours, total **nautical miles** (mi / km toggle), flights, unlocked cities, current streak.
 - **Heatmap** of focus minutes per day (last 12 months), filterable by tag.
 - Flight list with each pass archived. Export and import JSON as a backup, available even before Firebase.
 
