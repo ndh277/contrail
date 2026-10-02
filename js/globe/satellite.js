@@ -30,6 +30,11 @@ const tileVertex = /* glsl */ `
   }
 `;
 const tileFragment = /* glsl */ `
+  #ifndef SQ_DEFINED
+    #define SQ_DEFINED
+    #define sq(x) ((x) * (x))
+    #endif
+
   uniform sampler2D map;
   uniform sampler2D nightMap;   // Black Marble city lights, for the night side
   uniform vec3 sunDirection;
@@ -52,7 +57,7 @@ const tileFragment = /* glsl */ `
     vec3 lights = texture2D(nightMap, vec2(fract(lng / 6.2831853 + 0.5), lat / 3.1415927 + 0.5)).rgb;
     vec3 moon = c * vec3(0.2, 0.26, 0.4) + vec3(0.012, 0.018, 0.035) + lights * vec3(1.35, 1.05, 0.7) * 1.8;
     vec3 col = mix(moon, c * vec3(1.0, 0.98, 0.95), light);
-    col = mix(col, col * vec3(1.05, 0.8, 0.62), exp(-pow(cosSun / 0.12, 2.0)) * 0.6);
+    col = mix(col, col * vec3(1.05, 0.8, 0.62), exp(-sq(cosSun / 0.12)) * 0.6);
     float d = distance(cameraPosition, vWorldPos);
     float haze = 1.0 - exp(-d / uHazeDist);
     col = mix(col, uHaze * (0.12 + 0.88 * light), haze * 0.85);

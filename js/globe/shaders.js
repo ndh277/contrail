@@ -105,6 +105,11 @@ export const earthVertex = /* glsl */ `
 `;
 
 export const earthFragment = /* glsl */ `
+  #ifndef SQ_DEFINED
+    #define SQ_DEFINED
+    #define sq(x) ((x) * (x))
+    #endif
+
   uniform sampler2D dayTexture;
   uniform sampler2D nightTexture;
   uniform sampler2D reliefTexture;   // r = height, g = water
@@ -113,6 +118,9 @@ export const earthFragment = /* glsl */ `
   uniform float cityLights;
   uniform float uTime;
   uniform float uCloudShadow;
+  uniform float uHazeAmt;      // 0 from space; 1 in the close views (aerial perspective)
+  uniform vec3 uHazeCol;
+  uniform float uHazeDist;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPos;
   varying vec2 vUv;
@@ -157,12 +165,18 @@ export const earthFragment = /* glsl */ `
     vec3 color = mix(nightLit, dayLit, blend);
 
     // twilight: a warm band and reddened light along the terminator
-    float band = exp(-pow((cosSun - 0.01) / 0.12, 2.0));
+    float band = exp(-sq((cosSun - 0.01) / 0.12));
     color += vec3(1.0, 0.45, 0.18) * band * 0.05;
 
     // aerial perspective: blue haze grows toward the limb on the lit side
     float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.6);
     color = mix(color, vec3(0.42, 0.62, 1.0), rim * 0.55 * smoothstep(-0.2, 0.35, cosSun));
+
+    // up close the far ground melts into the horizon haze instead of ending in a hard edge
+    if (uHazeAmt > 0.0) {
+      float hz = 1.0 - exp(-distance(cameraPosition, vWorldPos) / uHazeDist);
+      color = mix(color, uHazeCol * (0.14 + 0.86 * smoothstep(-0.12, 0.3, cosSun)), hz * 0.92 * uHazeAmt);
+    }
 
     gl_FragColor = vec4(color, 1.0);
   }
@@ -171,6 +185,11 @@ export const earthFragment = /* glsl */ `
 export const cloudVertex = earthVertex;
 
 export const cloudFragment = /* glsl */ `
+  #ifndef SQ_DEFINED
+    #define SQ_DEFINED
+    #define sq(x) ((x) * (x))
+    #endif
+
   uniform vec3 sunDirection;
   uniform float uTime;
   uniform float uOpacity;
@@ -194,7 +213,7 @@ export const cloudFragment = /* glsl */ `
     // soft wrap lighting: clouds stay lit a little past the terminator, then go grey-blue
     float light = smoothstep(-0.18, 0.35, cosSun);
     vec3 lit = mix(vec3(0.05, 0.06, 0.09), vec3(1.0), light);
-    float band = exp(-pow((cosSun - 0.02) / 0.1, 2.0));
+    float band = exp(-sq((cosSun - 0.02) / 0.1));
     lit = mix(lit, vec3(1.0, 0.66, 0.45), band * 0.32);
     lit *= mix(1.0, vol, light) * (0.86 + 0.14 * (1.0 - smoothstep(0.6, 0.85, dens)));
     float edge = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
@@ -215,6 +234,11 @@ export const atmosphereVertex = /* glsl */ `
 
 // Rendered on the back faces of a slightly larger sphere: the glow around the limb.
 export const atmosphereFragment = /* glsl */ `
+  #ifndef SQ_DEFINED
+    #define SQ_DEFINED
+    #define sq(x) ((x) * (x))
+    #endif
+
   uniform vec3 sunDirection;
   uniform vec3 uCenter;
   varying vec3 vWorldNormal;
@@ -229,7 +253,7 @@ export const atmosphereFragment = /* glsl */ `
     float day = smoothstep(-0.35, 0.3, cosSun);
     vec3 blue = vec3(0.32, 0.56, 1.0);
     vec3 dusk = vec3(1.0, 0.5, 0.25);
-    float band = exp(-pow((cosSun + 0.05) / 0.18, 2.0));
+    float band = exp(-sq((cosSun + 0.05) / 0.18));
     vec3 col = mix(blue, dusk, band * 0.7) * (0.08 + day * 0.92);
     gl_FragColor = vec4(col * glow, glow * (0.12 + day * 0.88));
   }
@@ -291,6 +315,11 @@ export const skyFragment = /* glsl */ `
 // Detailed cumulus near the plane (3D follow + window views). Anchored to the ground,
 // shaped by the global cloud field so weather matches the globe view.
 export const deckFragment = /* glsl */ `
+  #ifndef SQ_DEFINED
+    #define SQ_DEFINED
+    #define sq(x) ((x) * (x))
+    #endif
+
   uniform vec3 sunDirection;
   uniform float uTime;
   uniform vec3 uCenter;
@@ -303,7 +332,14 @@ export const deckFragment = /* glsl */ `
   ${CLOUDMAP}
   void main() {
     vec3 n = normalize(vWorldNormal);
-    float big = cloudAt(n);
+    // The global map is ~10 km a texel: up close its pixels show as stair-stepped blocks.
+    // Warp the lookup with noise and blur it over a few taps, so only soft weather
+    // shapes remain and the fine detail below draws the real cloud edges.
+    vec3 wn = normalize(n + (vec3(noise3(n * 260.0), noise3(n * 260.0 + 7.1), noise3(n * 260.0 + 3.7)) - 0.5) * 0.006);
+    vec3 e1 = normalize(cross(wn, vec3(0.0, 1.0, 0.0)) + 1e-5) * 0.0012;
+    vec3 e2 = cross(wn, e1);
+    float dens = (cloudDensity(wn) * 2.0 + cloudDensity(wn + e1) + cloudDensity(wn - e1) + cloudDensity(wn + e2) + cloudDensity(wn - e2)) / 6.0;
+    float big = smoothstep(0.44, 0.7, dens);
     vec3 p = n * 620.0 + vec3(uTime * 0.05, 0.0, uTime * 0.03);
     float detail = fbm3(p) * 0.85 + noise3(p * 3.1) * 0.15;
     float d = detail - mix(0.6, 0.36, big);
@@ -315,9 +351,9 @@ export const deckFragment = /* glsl */ `
     float self = clamp(0.62 + (detail - d2 * 0.9) * 2.2, 0.3, 1.0);
     float cosSun = dot(n, sunDirection);
     float light = smoothstep(-0.12, 0.3, cosSun);
-    // night: moonlit grey-blue tops instead of black
-    vec3 col = mix(vec3(0.13, 0.15, 0.22) * (0.6 + 0.4 * self), vec3(1.0, 0.99, 0.97) * self + vec3(0.12, 0.14, 0.2) * (1.0 - self), light);
-    col = mix(col, vec3(1.0, 0.62, 0.4) * self, exp(-pow((cosSun - 0.03) / 0.1, 2.0)) * 0.5);
+    // night: moonlit tops, a little brighter than the land under them (as real clouds are)
+    vec3 col = mix(vec3(0.24, 0.28, 0.38) * (0.65 + 0.35 * self), vec3(1.0, 0.99, 0.97) * self + vec3(0.12, 0.14, 0.2) * (1.0 - self), light);
+    col = mix(col, vec3(1.0, 0.62, 0.4) * self, exp(-sq((cosSun - 0.03) / 0.1)) * 0.5);
     float haze = 1.0 - exp(-distance(cameraPosition, vWorldPos) / uHazeDist);
     col = mix(col, uHaze * (0.08 + 0.92 * light), haze * 0.8);
     gl_FragColor = vec4(col, c * 0.94);
@@ -339,7 +375,7 @@ export const airSkyFragment = /* glsl */ `
     float e = dot(d, uUp);
     float h = clamp(e + 0.02, 0.0, 1.0);
     vec3 col = mix(uHorizon, uZenith, pow(h, 0.45));
-    col = mix(col, uHorizon * 0.9, smoothstep(0.02, -0.08, e));       // haze below the horizon line
+    col = mix(col, uHorizon * 0.9, smoothstep(0.03, -0.14, e));       // haze below the horizon line
     float sd = max(dot(d, sunDirection), 0.0);
     col += uSunCol * (pow(sd, 6.0) * 0.22 + pow(sd, 60.0) * 0.5) * (1.0 - uNight * 0.85);
     col += uSunCol * smoothstep(0.9996, 0.99985, sd) * 3.0 * step(-0.02, dot(sunDirection, uUp));

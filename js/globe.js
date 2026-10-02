@@ -127,6 +127,11 @@ const trailVertex = /* glsl */ `
   }
 `;
 const trailFragment = /* glsl */ `
+  #ifndef SQ_DEFINED
+    #define SQ_DEFINED
+    #define sq(x) ((x) * (x))
+    #endif
+
   uniform vec3 uColor;
   varying float vAlpha;
   varying float vSide;
@@ -135,8 +140,8 @@ const trailFragment = /* glsl */ `
     // two engine trails that spread and merge into one soft band as they age
     float sep = 0.62 * smoothstep(0.45, 1.0, vU);
     float w = mix(0.55, 0.2, smoothstep(0.4, 1.0, vU));
-    float a1 = exp(-pow((vSide - sep) / w, 2.0));
-    float a2 = exp(-pow((vSide + sep) / w, 2.0));
+    float a1 = exp(-sq((vSide - sep) / w));
+    float a2 = exp(-sq((vSide + sep) / w));
     float body = max(a1, a2) + 0.35 * min(a1, a2);
     float haze = exp(-vSide * vSide * 2.2) * 0.35 * (1.0 - vU);
     gl_FragColor = vec4(uColor, vAlpha * (body + haze));
@@ -329,6 +334,10 @@ export class GlobeView {
     this.time = { value: 0 };
     this.cloudShift = { value: 0 };
     this.throttleRendering();
+    // if the GPU drops the context (memory pressure on phones), reload: the flight resumes from storage
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener("webglcontextlost", (e) => { e.preventDefault(); this.contextLost = true; setTimeout(() => location.reload(), 2500); }, false);
+    canvas.addEventListener("webglcontextrestored", () => location.reload(), false);
     const sunDirection = { value: new THREE.Vector3(1, 0, 0) };
     this.material = new THREE.ShaderMaterial({
       uniforms: {
@@ -340,6 +349,7 @@ export class GlobeView {
         cityLights: { value: 1.35 },
         uTime: this.time,
         uCloudShadow: { value: 0.7 },
+        uHazeAmt: { value: 0 }, uHazeCol: { value: new THREE.Color("#b9cde6") }, uHazeDist: { value: 4 },
         cloudMap: { value: null },
         uCloudShift: this.cloudShift,
       },
@@ -425,7 +435,14 @@ export class GlobeView {
 
     this.addStars();
     this.frameHooks = new Set();
-    const loop = (t) => { this.tick(t); requestAnimationFrame(loop); };
+    const loop = (t) => {
+      // the display's own frame interval (60 / 90 / 120 / 144 Hz), so caps divide it evenly
+      const d = t - (this.lastLoopT || t);
+      this.lastLoopT = t;
+      if (d > 3 && d < 40) this.vsync = this.vsync ? this.vsync * 0.95 + d * 0.05 : d;
+      this.tick(t);
+      requestAnimationFrame(loop);
+    };
     requestAnimationFrame(loop);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -461,7 +478,7 @@ export class GlobeView {
 
   /** Bake the star field once; per frame the sky is a single texture lookup. */
   bakeSky() {
-    const w = this.tier === "low" ? 2048 : 4096;
+    const w = this.tier === "low" ? 1024 : 2048;      // a soft glow and faint stars; the crisp stars are points
     const rt = new THREE.WebGLRenderTarget(w, w / 2, { depthBuffer: false, stencilBuffer: false });
     rt.texture.wrapS = THREE.RepeatWrapping;
     const scene = new THREE.Scene();
@@ -494,9 +511,15 @@ export class GlobeView {
     r.render = (scene, camera) => {
       if (r.getRenderTarget() !== null) return draw(scene, camera);     // bakes, offscreen work
       const now = performance.now();
-      // while touched or moving: every display frame (120 Hz where the screen has it)
+      // while touched or moving: every display frame (120 Hz where the screen has it).
+      // Otherwise draw every n-th display frame, n a whole number: a 60 fps cap on a 144 Hz
+      // laptop becomes an even 72, never a 2-3-2-3 mix that makes motion judder.
       const cap = now < this.burstUntil ? Infinity : this.fpsCap;
-      if (cap <= 0 || now - this.lastDraw < 1000 / cap - 3) return;
+      if (cap <= 0) return;
+      this.vsyncCount = (this.vsyncCount || 0) + 1;
+      const every = cap === Infinity ? 1 : Math.max(1, Math.round(1000 / cap / (this.vsync || 16.7)));
+      if (this.vsyncCount < every) return;
+      this.vsyncCount = 0;
       this.pace(now, cap);
       this.beforeDraw(Math.min(0.1, Math.max(0.001, (now - (this.lastDraw || now - 16)) / 1000)));
       this.lastDraw = now;
@@ -571,6 +594,41 @@ export class GlobeView {
     patch();
   }
 
+  /**
+   * Labels that follow something moving (the plane) are placed in screen space on every
+   * drawn frame, from the same camera as the canvas, so they glide with it.
+   */
+  screenLabel(el, worldPos) {
+    if (!this.labelLayer) {
+      this.labelLayer = document.createElement("div");
+      this.labelLayer.className = "screen-labels";
+      this.el.append(this.labelLayer);
+      this.screenLabels = new Map();
+    }
+    if (!worldPos) { this.screenLabels.delete(el); el.remove(); return; }
+    if (el.parentElement !== this.labelLayer) this.labelLayer.append(el);
+    this.screenLabels.set(el, worldPos);
+  }
+
+  placeScreenLabels() {
+    if (!this.screenLabels?.size) return;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const { w, h } = this.size || { w: 1, h: 1 };
+    const v = this._lv || (this._lv = new THREE.Vector3());
+    for (const [el, get] of this.screenLabels) {
+      const p = typeof get === "function" ? get() : get;
+      if (!p) { el.style.visibility = "hidden"; continue; }
+      v.copy(p).project(cam);
+      const on = v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
+      el.style.visibility = on ? "" : "hidden";
+      if (!on) continue;
+      const x = ((v.x + 1) / 2 * w).toFixed(1), y = ((1 - v.y) / 2 * h).toFixed(1);
+      const tr = `translate3d(${x}px, ${y}px, 0)`;
+      if (el.__tr !== tr) { el.__tr = tr; el.style.transform = tr; }
+    }
+  }
+
   /** Draw at full rate for a while (input, camera moves, screen changes). */
   wake(ms = 1200) { this.burstUntil = Math.max(this.burstUntil, performance.now() + ms); }
 
@@ -635,6 +693,9 @@ export class GlobeView {
       clouds.anisotropy = aniso;
       this.cloudTex = clouds;
       for (const m of [this.material, this.clouds.material, this.deck?.material]) if (m) m.uniforms.cloudMap.value = clouds;
+      // the procedural fallback is no longer needed: give its 2 x 32 MB back to the GPU
+      for (const rt of this.cloudRT || []) rt.dispose();
+      this.cloudRT = null;
     }).catch(() => {});
   }
 
@@ -726,6 +787,7 @@ export class GlobeView {
     if (this.plane) this.scalePlane();
     this.sky.position.copy(this.camera.position);
     if (this.airSky) this.airSky.position.copy(this.camera.position);
+    this.placeScreenLabels();
     if (this.route) {
       // keep the line ~2 px thick at any zoom (the mesh is 3x the core for the glow)
       const u = this.route.material.uniforms;
@@ -1226,7 +1288,9 @@ export class GlobeView {
     this.satellite.setVisible(close);
     this.satellite.configure(mode === "window"
       ? { levels: [{ z: 8, ring: 3 }, { z: 10, ring: 3 }, { z: 12, ring: 2 }], hazeDist: 2.2 }
-      : { levels: [{ z: 7, ring: 3 }, { z: 9, ring: 3 }, { z: 11, ring: 2 }], hazeDist: 5 });
+      : { levels: [{ z: 7, ring: 3 }, { z: 9, ring: 3 }, { z: 11, ring: 2 }], hazeDist: 3.6 });
+    this.material.uniforms.uHazeAmt.value = close ? 1 : 0;
+    this.material.uniforms.uHazeDist.value = mode === "window" ? 2.2 : 3.6;
     if (this.plane) this.plane.visible = mode !== "window";
     if (this.trail) this.trail.visible = mode !== "window";
     if (this.shadow) this.shadow.visible = mode !== "window";
@@ -1251,7 +1315,7 @@ export class GlobeView {
     this.deck = new THREE.Mesh(geo, new THREE.ShaderMaterial({
       uniforms: {
         sunDirection, uTime: this.time, uCenter: { value: new THREE.Vector3() }, uRadius: { value: this.R * capAngle },
-        cloudMap: { value: this.cloudTex || this.cloudRT[(this.cloudFrame + 1) % 2].texture }, uCloudShift: this.cloudShift,
+        cloudMap: { value: this.cloudTex || this.cloudRT?.[(this.cloudFrame + 1) % 2].texture || null }, uCloudShift: this.cloudShift,
         uHaze: { value: new THREE.Color("#b9cde6") }, uHazeDist: { value: 4 },
       },
       defines: { OCTAVES: this.tier === "low" ? 3 : 4 },
@@ -1362,6 +1426,7 @@ export class GlobeView {
       const haze = new THREE.Color().setRGB(...L.horizon);
       this.satellite.configure({ haze });
       this.deck.material.uniforms.uHaze.value.copy(haze);
+      this.material.uniforms.uHazeCol.value.copy(haze);
       this.closeLook = L;
     }
   }

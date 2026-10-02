@@ -91,6 +91,7 @@ export class Flight {
     const v = this.view;
     v.showRadar(false);
     v.setLabels([]);
+    this.labelKey = null;
     v.setRoute(f.origin, f.dest);
     v.setEndpoints(f.origin, f.dest);
     this.labelEls = null;
@@ -253,11 +254,11 @@ export class Flight {
     // the origin tag steps aside while the plane is still on top of it
     const items = [{ key: "to", lat: f.dest.lat, lng: f.dest.lng, el: to }];
     if (p > (this.mode === "globe" ? 0.12 : 0.3)) items.push({ key: "from", lat: f.origin.lat, lng: f.origin.lng, el: from });
-    if (this.mode !== "window") {
-      const alt = v.routeInfo ? v.routeAltitude(p, v.routeInfo.cruise) : 0;
-      items.push({ key: "plane", lat: here.lat, lng: here.lng, alt: alt + 0.002, el: plane });
-    }
-    v.setLabels(items);
+    // the plane's own tag rides in screen space, re-placed with every drawn frame
+    v.screenLabel(plane, this.mode !== "window" ? () => v.planeState?.pos : null);
+    // the airport tags only change when one appears or steps aside
+    const key = items.map((i) => i.key).join();
+    if (key !== this.labelKey) { this.labelKey = key; v.setLabels(items); }
   }
 
   caption(here, tNow) {
@@ -632,6 +633,8 @@ export class Flight {
     this.view.clearRoute();
     this.view.clearEndpoints();
     this.view.setLabels([]);
+    this.labelKey = null;
+    if (this.labelEls) this.view.screenLabel(this.labelEls.plane, null);
     this.view.showRadar(true);
   }
 }
