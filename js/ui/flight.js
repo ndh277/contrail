@@ -220,6 +220,7 @@ export class Flight {
       this.lastCompanion = t;
       this.companion.update({
         clock: text, progress: p, from: f.origin.iata, to: f.dest.iata, phase, flightNo: f.flightNo,
+        tag: f.tag?.name, tagColor: f.tag?.color, kmLeft: Math.max(0, Math.round(f.distKm * (1 - p))),
         eta: eta.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), minutesLeft: Math.ceil(remaining / 60000),
       });
     }
@@ -338,13 +339,13 @@ export class Flight {
   /** Keep the globe centred in the space the HUD leaves free. */
   layoutOffset() {
     const v = this.view;
-    if ((this.mode === "window" && this.windowLive) || this.idle) { v.setCenterOffset(0, 0); return; }
+    if ((this.mode === "window" && this.windowLive) || this.idle) { v.setCenterOffset(0, 0, null, 700); return; }
     const top = this.root.querySelector(".hud-top")?.getBoundingClientRect();
     const bottom = this.root.querySelector(".hud-bottom")?.getBoundingClientRect();
     if (!top || !bottom || !bottom.height) return;
     const landscape = innerWidth > innerHeight && innerWidth >= 820;
-    if (landscape) v.setCenterOffset(-(bottom.width + 20) / 2, 0);
-    else v.setCenterOffset(0, (innerHeight - bottom.top - top.bottom) / 2 * 0.9);
+    if (landscape) v.setCenterOffset(-(bottom.width + 20) / 2, 0, null, 700);
+    else v.setCenterOffset(0, (innerHeight - bottom.top - top.bottom) / 2 * 0.9, null, 700);
   }
 
   /* ================= seat-class rules ================= */

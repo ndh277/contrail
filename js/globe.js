@@ -532,10 +532,25 @@ export class GlobeView {
    * Move the projection centre so the globe sits in the visible part of the screen
    * (above a bottom sheet, left of a side panel). dx/dy in CSS px, positive = shift scene left/up.
    */
-  setCenterOffset(dx = 0, dy = 0, visible = null) {
-    this.centerOffset = { dx, dy };
+  /** Shift the globe's centre (px). With `ease` (ms) it glides there, for screen changes. */
+  setCenterOffset(dx = 0, dy = 0, visible = null, ease = 0) {
     this.visible = visible;
-    this.applyCenterOffset();
+    cancelAnimationFrame(this.offsetRaf);
+    const from = this.centerOffset || { dx: 0, dy: 0 };
+    if (!ease || (Math.abs(from.dx - dx) < 1 && Math.abs(from.dy - dy) < 1) || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      this.centerOffset = { dx, dy };
+      this.applyCenterOffset();
+      return;
+    }
+    const t0 = performance.now();
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / ease);
+      const e = 1 - Math.pow(1 - p, 4);
+      this.centerOffset = { dx: from.dx + (dx - from.dx) * e, dy: from.dy + (dy - from.dy) * e };
+      this.applyCenterOffset();
+      if (p < 1) this.offsetRaf = requestAnimationFrame(step);
+    };
+    this.offsetRaf = requestAnimationFrame(step);
   }
 
   applyCenterOffset() {

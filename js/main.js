@@ -46,11 +46,11 @@ function show(screen) {
     const vt = document.startViewTransition(apply);
     vt.finished.finally(() => document.documentElement.classList.remove("vt"));
   } else apply();
-  requestAnimationFrame(updateGlobeOffset);
+  requestAnimationFrame(() => updateGlobeOffset(700));
 }
 
 /** Centre the globe in whatever part of the screen the glass panels leave visible. */
-function updateGlobeOffset() {
+function updateGlobeOffset(ease = 0) {
   const view = globeView;
   if (!view) return;
   const scr = app.dataset.screen;
@@ -61,15 +61,16 @@ function updateGlobeOffset() {
   const bar = document.querySelector(".topbar");
   const top = bar.offsetTop + bar.offsetHeight;
   if (landscape) {
+    // tablet: the master column sits on the left, the globe fills the rest
     const panel = scr === "departure" ? $("departure") : document.querySelector(`#${{ checkin: "checkin", pass: "pass-screen", logbook: "logbook" }[scr]}`);
-    const used = panel ? W - panel.offsetLeft : 0;
-    view.setCenterOffset(used / 2, -top / 2, { w: W - used - 24, h: H - top - 20 });
+    const used = panel ? panel.offsetLeft + panel.offsetWidth : 0;
+    view.setCenterOffset(-used / 2, -top / 2, { w: W - used - 24, h: H - top - 20 }, ease);
   } else if (scr === "departure") {
     const sheetTop = H - (sheet ? sheet.visible : $("departure").offsetHeight);
     const visH = sheetTop - top;
-    view.setCenterOffset(0, (H - sheetTop - top) / 2, { w: W, h: visH });
+    view.setCenterOffset(0, (H - sheetTop - top) / 2, { w: W, h: visH }, ease);
   } else {
-    view.setCenterOffset(0, 0, null);
+    view.setCenterOffset(0, 0, null, ease);
   }
 }
 
@@ -87,7 +88,7 @@ async function boot() {
   const view = new GlobeView($("globe"));
   globeView = view;
   applyTheme();
-  addEventListener("resize", () => requestAnimationFrame(updateGlobeOffset));
+  addEventListener("resize", () => requestAnimationFrame(() => updateGlobeOffset()));
   // the departure sheet: peek (time + dial), half, full
   const depEl = $("departure");
   sheet = new BottomSheet(depEl, {

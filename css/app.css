@@ -542,7 +542,8 @@ h1, h2, h3, p { margin: 0; }
 
 .tear-hint {
   display: flex; align-items: center; gap: 10px;
-  margin-top: 4px; padding-left: 96px; min-height: 64px; font-size: var(--fs-sm); color: var(--text-mid);
+  margin-top: 4px; padding-left: 96px; min-height: 64px;
+  align-self: center; width: min(360px, 100%); box-sizing: border-box; font-size: var(--fs-sm); color: var(--text-mid);
   opacity: 0; transform: translateY(6px);
   transition: opacity var(--t-med), transform var(--t-med) var(--ease-out);
 }
@@ -673,22 +674,25 @@ input[type="search"], input[type="text"] {
 
 /* ================= tablet landscape: globe | controls ================= */
 @media (orientation: landscape) and (min-width: 820px) {
+  /* tablet / laptop: the master column on the left, the globe on the right */
   .sheet {
-    justify-self: end; align-self: stretch;
+    justify-self: start; align-self: stretch;
     width: min(420px, 40vw); max-height: none; height: auto; transform: none; padding-bottom: 14px;
     margin: calc(var(--safe-top) + 70px) 14px 14px;
     border-radius: 30px;
     box-shadow: var(--glass-shadow);
   }
   .screen {
-    justify-self: end; width: min(460px, 42vw);
+    justify-self: start; width: min(460px, 42vw);
+    transform: translateX(-48px);
     margin: calc(var(--safe-top) + 14px) 14px 14px;
     border-radius: 30px;
     box-shadow: var(--glass-shadow);
   }
   .checkin-foot { border-radius: 0 0 30px 30px; }
   .hud-bottom { width: min(560px, calc(100% - 20px)); }
-  .toast { left: 40%; }
+  .toast { left: 62%; }
+  .app:not([data-screen="departure"]) .sheet { transform: translateX(calc(-100% - 40px)); opacity: 0; }
 }
 
 /* ================= M2: in-flight controls ================= */
