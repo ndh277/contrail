@@ -167,11 +167,14 @@ const pointsFragment = /* glsl */ `
 const trailVertex = /* glsl */ `
   attribute float aAlpha;
   attribute float aSide;
+  attribute float aU;
   varying float vAlpha;
   varying float vSide;
+  varying float vU;
   void main() {
     vAlpha = aAlpha;
     vSide = aSide;
+    vU = aU;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -179,10 +182,64 @@ const trailFragment = /* glsl */ `
   uniform vec3 uColor;
   varying float vAlpha;
   varying float vSide;
+  varying float vU;
   void main() {
-    float soft = exp(-vSide * vSide * 3.2);
-    float core = exp(-vSide * vSide * 40.0) * 0.5;
-    gl_FragColor = vec4(uColor, vAlpha * (soft + core));
+    // two engine trails that spread and merge into one soft band as they age
+    float sep = 0.62 * smoothstep(0.45, 1.0, vU);
+    float w = mix(0.55, 0.2, smoothstep(0.4, 1.0, vU));
+    float a1 = exp(-pow((vSide - sep) / w, 2.0));
+    float a2 = exp(-pow((vSide + sep) / w, 2.0));
+    float body = max(a1, a2) + 0.35 * min(a1, a2);
+    float haze = exp(-vSide * vSide * 2.2) * 0.35 * (1.0 - vU);
+    gl_FragColor = vec4(uColor, vAlpha * (body + haze));
+  }
+`;
+
+const routeVertex = /* glsl */ `
+  attribute vec3 aSideVec;
+  attribute float aSide;
+  attribute float aU;
+  uniform float uWidth;
+  varying float vSide;
+  varying float vU;
+  void main() {
+    vSide = aSide;
+    vU = aU;
+    vec3 p = position + aSideVec * aSide * uWidth;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }
+`;
+const routeFragment = /* glsl */ `
+  uniform float uProgress;
+  uniform float uTime;
+  uniform float uDashes;
+  uniform float uOpacity;
+  uniform vec3 uFlown;
+  uniform vec3 uAhead;
+  varying float vSide;
+  varying float vU;
+  void main() {
+    float s = abs(vSide);
+    float aa = max(fwidth(vSide), 1e-4);
+    // the geometry is 3x the line: a crisp core in the middle third, a glow around it
+    float core = 1.0 - smoothstep(0.33 - aa, 0.33 + aa, s);
+    float glow = exp(-s * s * 9.0);
+    // ends fade in so the line meets the airport markers softly
+    float ends = smoothstep(0.0, 0.012, vU) * smoothstep(1.0, 0.988, vU);
+    vec3 col;
+    float a;
+    if (vU <= uProgress) {
+      col = uFlown;
+      a = core + glow * 0.45;
+    } else {
+      float x = (vU - uProgress) * uDashes - uTime * 0.35;
+      float fx = fract(x);
+      float da = max(fwidth(x), 1e-4);
+      float dash = smoothstep(0.0, da * 1.5, fx) * (1.0 - smoothstep(0.55 - da * 1.5, 0.55, fx));
+      col = uAhead;
+      a = core * dash * 0.85;
+    }
+    gl_FragColor = vec4(col, a * ends * uOpacity);
   }
 `;
 
@@ -237,17 +294,78 @@ const navFragment = /* glsl */ `
 const cssColor = (name, fallback) =>
   new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback);
 
-/** Original plane silhouette, nose pointing +Y, wingspan ~2 units. */
-function planeShape() {
-  const half = [
-    [0, 1.0], [0.07, 0.86], [0.09, 0.42], [0.98, -0.06], [0.98, -0.2], [0.1, -0.05],
-    [0.07, -0.62], [0.4, -0.88], [0.4, -0.98], [0.0, -0.9],
-  ];
-  const pts = [...half, ...half.slice(1, -1).reverse().map(([x, y]) => [-x, y])];
-  const s = new THREE.Shape();
-  pts.forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
-  s.closePath();
-  return s;
+/**
+ * A top-down twin-jet airliner drawn on a canvas (original artwork).
+ * Nose toward the top of the texture = local +Y. Returns { plane, shadow } canvases.
+ */
+function airlinerTextures(accent = "#f4b15a") {
+  const S = 512;
+  const mk = () => { const c = document.createElement("canvas"); c.width = c.height = S; return c; };
+  const shapes = (g) => {
+    const path = (pts) => { g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); };
+    const mirror = (pts) => pts.map(([x, y]) => [S - x, y]);
+    const wing = [[238, 206], [26, 318], [24, 340], [238, 290]];
+    const stab = [[246, 404], [168, 452], [168, 468], [246, 452]];
+    return { path, mirror, wing, stab };
+  };
+  const body = (g) => {
+    g.beginPath();
+    g.moveTo(256, 34);
+    g.bezierCurveTo(276, 40, 278, 84, 278, 120);
+    g.lineTo(277, 380);
+    g.bezierCurveTo(276, 430, 266, 470, 256, 486);
+    g.bezierCurveTo(246, 470, 236, 430, 235, 380);
+    g.lineTo(234, 120);
+    g.bezierCurveTo(234, 84, 236, 40, 256, 34);
+    g.closePath();
+  };
+
+  const plane = mk();
+  const g = plane.getContext("2d");
+  const { path, mirror, wing, stab } = shapes(g);
+  // wings + stabilisers
+  const wg = g.createLinearGradient(0, 0, S / 2, 0);
+  wg.addColorStop(0, "#aeb7c4"); wg.addColorStop(0.7, "#d9dee6"); wg.addColorStop(1, "#e8ecf1");
+  const wgR = g.createLinearGradient(S, 0, S / 2, 0);
+  wgR.addColorStop(0, "#aeb7c4"); wgR.addColorStop(0.7, "#d9dee6"); wgR.addColorStop(1, "#e8ecf1");
+  for (const [pts, grad] of [[wing, wg], [mirror(wing), wgR], [stab, wg], [mirror(stab), wgR]]) {
+    path(pts); g.fillStyle = grad; g.fill();
+    g.strokeStyle = "rgba(60,70,90,.35)"; g.lineWidth = 1.2; g.stroke();
+  }
+  // flap lines
+  g.strokeStyle = "rgba(70,80,100,.28)"; g.lineWidth = 1;
+  for (const sgn of [1, -1]) {
+    g.beginPath(); g.moveTo(256 - sgn * 40, 285); g.lineTo(256 - sgn * 190, 318); g.stroke();
+  }
+  // engines under the wings
+  for (const x of [160, S - 160]) {
+    const eg = g.createLinearGradient(x - 14, 0, x + 14, 0);
+    eg.addColorStop(0, "#6c7586"); eg.addColorStop(0.5, "#c9cfd8"); eg.addColorStop(1, "#5e6676");
+    g.fillStyle = eg;
+    g.beginPath(); g.roundRect(x - 13, 226, 26, 66, 12); g.fill();
+    g.fillStyle = "#2b303b"; g.beginPath(); g.ellipse(x, 229, 10, 4, 0, 0, Math.PI * 2); g.fill();
+  }
+  // fuselage
+  body(g);
+  const fg = g.createLinearGradient(234, 0, 278, 0);
+  fg.addColorStop(0, "#c3c9d3"); fg.addColorStop(0.35, "#ffffff"); fg.addColorStop(0.65, "#f4f6f9"); fg.addColorStop(1, "#b9c0cb");
+  g.fillStyle = fg; g.fill();
+  g.strokeStyle = "rgba(60,70,90,.35)"; g.lineWidth = 1.2; g.stroke();
+  // cockpit windows
+  g.fillStyle = "#1d2433";
+  g.beginPath(); g.moveTo(244, 66); g.quadraticCurveTo(256, 56, 268, 66); g.lineTo(266, 74); g.quadraticCurveTo(256, 68, 246, 74); g.closePath(); g.fill();
+  // fin seen from above, with the accent stripe
+  g.fillStyle = accent; g.beginPath(); g.roundRect(252, 396, 8, 84, 4); g.fill();
+  g.fillStyle = "rgba(255,255,255,.35)"; g.fillRect(253, 400, 2, 70);
+
+  const shadow = mk();
+  const sg = shadow.getContext("2d");
+  sg.filter = "blur(9px)";
+  sg.fillStyle = "#000";
+  const sh = shapes(sg);
+  for (const pts of [sh.wing, sh.mirror(sh.wing), sh.stab, sh.mirror(sh.stab)]) { sh.path(pts); sg.fill(); }
+  body(sg); sg.fill();
+  return { plane, shadow };
 }
 
 export class GlobeView {
@@ -356,6 +474,12 @@ export class GlobeView {
     if (this.radar) this.radar.material.uniforms.uSweep.value = (t / 1000) * 1.7;
     if (this.stars) this.stars.material.uniforms.uTime.value = t / 1000;
     if (this.navLights) this.navLights.material.uniforms.uTime.value = t / 1000;
+    if (this.route) {
+      const u = this.route.material.uniforms;
+      u.uTime.value = t / 1000;
+      // keep the line ~2 px thick at any zoom (the mesh is 3x the core for the glow)
+      u.uWidth.value = Math.max(0.02, (this.camera.position.length() - this.R) * 0.0042) * (this.pixelRatio > 1.5 ? 1 : 1.2);
+    }
     this.stepPings(t);
     for (const fn of this.frameHooks) fn(t, dt);
     this.stepCamera(dt);
@@ -505,57 +629,81 @@ export class GlobeView {
 
   routeCruise(distKm) { return Math.min(0.12, 0.012 + distKm / 40000); }
 
-  setRoute(from, to, { dashed = true } = {}) {
+  setRoute(from, to, { preview = false } = {}) {
     this.clearRoute();
     if (!from || !to) return;
     const distKm = Math.max(1, haversineKm(from.lat, from.lng, to.lat, to.lng));
     const cruise = this.routeCruise(distKm);
-    const N = 160;
-    const pts = [];
+    const N = 220;
+    const centers = [];
     for (let i = 0; i <= N; i++) {
       const f = i / N;
       const p = interpolateGC(from.lat, from.lng, to.lat, to.lng, f);
-      pts.push(this.coords(p.lat, p.lng, this.routeAltitude(f, cruise) + 0.002));
+      centers.push(this.coords(p.lat, p.lng, this.routeAltitude(f, cruise) + 0.0015));
     }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const color = cssColor("--accent-hi", "#ffcd85");
-    const mat = dashed
-      ? new THREE.LineDashedMaterial({ color, dashSize: 1.2, gapSize: 0.9, transparent: true, opacity: 0.9, depthWrite: false })
-      : new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.35, depthWrite: false });
-    this.route = new THREE.Line(geo, mat);
-    if (dashed) this.route.computeLineDistances();
+    const pos = new Float32Array((N + 1) * 2 * 3), side = new Float32Array((N + 1) * 2 * 3);
+    const sgn = new Float32Array((N + 1) * 2), uu = new Float32Array((N + 1) * 2);
+    for (let i = 0; i <= N; i++) {
+      const a = centers[Math.max(0, i - 1)], b = centers[Math.min(N, i + 1)];
+      const tan = b.clone().sub(a).normalize();
+      const sv = new THREE.Vector3().crossVectors(tan, centers[i].clone().normalize()).normalize();
+      for (const k of [0, 1]) {
+        const j = i * 2 + k;
+        pos.set([centers[i].x, centers[i].y, centers[i].z], j * 3);
+        side.set([sv.x, sv.y, sv.z], j * 3);
+        sgn[j] = k ? -1 : 1;
+        uu[j] = i / N;
+      }
+    }
+    const idx = [];
+    for (let i = 0; i < N; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("aSideVec", new THREE.BufferAttribute(side, 3));
+    geo.setAttribute("aSide", new THREE.BufferAttribute(sgn, 1));
+    geo.setAttribute("aU", new THREE.BufferAttribute(uu, 1));
+    geo.setIndex(idx);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uWidth: { value: 0.3 }, uProgress: { value: 0 }, uTime: { value: 0 }, uOpacity: { value: 1 },
+        uDashes: { value: Math.max(6, Math.min(140, distKm / 70)) },
+        uFlown: { value: cssColor("--amber-400", "#f4b15a") },
+        uAhead: { value: new THREE.Color(preview ? cssColor("--amber-200", "#ffe2b0") : "#f2f4f8") },
+      },
+      vertexShader: routeVertex, fragmentShader: routeFragment,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    });
+    this.route = new THREE.Mesh(geo, mat);
+    this.route.frustumCulled = false;
     this.route.renderOrder = 4;
     this.scene.add(this.route);
     this.routeInfo = { from, to, distKm, cruise };
     return this.routeInfo;
   }
 
+  setRouteProgress(p) { if (this.route) this.route.material.uniforms.uProgress.value = p; }
+
   clearRoute() {
-    if (this.route) { this.scene.remove(this.route); this.route.geometry.dispose(); this.route = null; }
+    if (this.route) { this.scene.remove(this.route); this.route.geometry.dispose(); this.route.material.dispose(); this.route = null; }
     this.routeInfo = null;
   }
 
   ensurePlane() {
     if (this.plane) return;
-    const geo = new THREE.ShapeGeometry(planeShape());
-    this.planeGeo = geo;
+    if (!this.planeTex) {
+      const { plane, shadow } = airlinerTextures(getComputedStyle(document.documentElement).getPropertyValue("--amber-400").trim() || "#f4b15a");
+      const mk = (c) => { const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; };
+      this.planeTex = { plane: mk(plane), shadow: mk(shadow) };
+    }
+    const quad = new THREE.PlaneGeometry(2, 2);
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
-    // dark keyline so the craft reads against both oceans and city lights
-    const outline = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: "#0b1220", side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }));
-    outline.scale.setScalar(1.2);
-    outline.position.set(0, -0.02, -0.002);
-    outline.renderOrder = 6;
-    const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: cssColor("--paper-50", "#fbf6ea"), side: THREE.DoubleSide, transparent: true, depthWrite: false }));
-    fill.renderOrder = 7;
-    // amber fin stripe
-    const fin = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.5), new THREE.MeshBasicMaterial({ color: cssColor("--amber-400", "#f4b15a"), side: THREE.DoubleSide, transparent: true, depthWrite: false }));
-    fin.position.set(0, -0.55, 0.002);
-    fin.renderOrder = 8;
-    // navigation lights: red port, green starboard, white tail strobe
+    const body = new THREE.Mesh(quad, new THREE.MeshBasicMaterial({ map: this.planeTex.plane, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    body.renderOrder = 7;
+    // navigation lights: red port, green starboard, white tail strobe, red beacon
     const lightsGeo = new THREE.BufferGeometry();
-    lightsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.98, -0.13, 0.01, 0.98, -0.13, 0.01, 0, -0.95, 0.01, 0, 0.1, 0.01]), 3));
-    lightsGeo.setAttribute("aColor", new THREE.BufferAttribute(new Float32Array([1, 0.25, 0.2, 0.3, 1, 0.45, 1, 1, 1, 1, 1, 1]), 3));
+    lightsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.91, -0.27, 0.01, 0.91, -0.27, 0.01, 0, -0.9, 0.01, 0, 0.1, 0.01]), 3));
+    lightsGeo.setAttribute("aColor", new THREE.BufferAttribute(new Float32Array([1, 0.25, 0.2, 0.3, 1, 0.45, 1, 1, 1, 1, 0.3, 0.25]), 3));
     lightsGeo.setAttribute("aBlink", new THREE.BufferAttribute(new Float32Array([0, 0, 0.6, 0.85]), 1));
     this.navLights = new THREE.Points(lightsGeo, new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 }, uPx: { value: this.pixelRatio } },
@@ -563,12 +711,12 @@ export class GlobeView {
     }));
     this.navLights.renderOrder = 9;
     this.navLights.frustumCulled = false;
-    group.add(outline, fill, fin, this.navLights);
+    group.add(body, this.navLights);
     this.plane = group;
     this.scene.add(group);
 
-    // ground shadow: shows how high we are while climbing out
-    this.shadow = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: "#000000", side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false }));
+    // soft ground shadow: shows how high we are while climbing out
+    this.shadow = new THREE.Mesh(quad, new THREE.MeshBasicMaterial({ map: this.planeTex.shadow, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
     this.shadow.matrixAutoUpdate = false;
     this.shadow.renderOrder = 4;
     this.scene.add(this.shadow);
@@ -580,6 +728,9 @@ export class GlobeView {
     const side = new Float32Array((maxSeg + 1) * 2);
     for (let i = 0; i <= maxSeg; i++) { side[i * 2] = 1; side[i * 2 + 1] = -1; }
     tgeo.setAttribute("aSide", new THREE.BufferAttribute(side, 1));
+    const uAttr = new Float32Array((maxSeg + 1) * 2);
+    for (let i = 0; i <= maxSeg; i++) { uAttr[i * 2] = uAttr[i * 2 + 1] = i / maxSeg; }
+    tgeo.setAttribute("aU", new THREE.BufferAttribute(uAttr, 1));
     const idx = [];
     for (let i = 0; i < maxSeg; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     tgeo.setIndex(idx);
@@ -600,6 +751,7 @@ export class GlobeView {
     for (const k of ["plane", "trail", "shadow"]) {
       if (this[k]) { this.scene.remove(this[k]); this[k] = null; }
     }
+    this.navLights = null;
   }
 
   /**
@@ -637,19 +789,20 @@ export class GlobeView {
     const lengthF = Math.min(f, Math.max(0.06, 900 / Math.max(1, this.routeInfo.distKm) * 0.6));
     const posAttr = this.trail.geometry.getAttribute("position");
     const aAttr = this.trail.geometry.getAttribute("aAlpha");
-    const w = this.planeState.scale * 0.26;
+    const w = this.planeState.scale;
     const fade = Math.min(1, climb * 1.6);
     for (let i = 0; i <= n; i++) {
       const u = i / n;                      // 0 = tail end, 1 = at the plane
-      const ff = f - lengthF * (1 - u) - 0.0004;
+      const ff = f - lengthF * (1 - u) - 0.0002;
       const p = at(ff);
       const p2 = at(ff + 0.001);
       const dir = p2.clone().sub(p).normalize();
       const sideV = new THREE.Vector3().crossVectors(dir, p.clone().normalize()).normalize();
-      const width = w * (0.4 + 1.8 * Math.pow(1 - u, 1.3)) * Math.min(1, u * 10);
+      const width = w * (0.5 + 1.1 * Math.pow(1 - u, 1.2));
       posAttr.setXYZ(i * 2, p.x + sideV.x * width, p.y + sideV.y * width, p.z + sideV.z * width);
       posAttr.setXYZ(i * 2 + 1, p.x - sideV.x * width, p.y - sideV.y * width, p.z - sideV.z * width);
-      const alpha = 0.6 * Math.pow(u, 1.6) * fade * (lengthF > 0.0005 ? 1 : 0);
+      // condensation forms a little behind the engines, then slowly dissipates
+      const alpha = 0.62 * Math.pow(u, 1.5) * (1 - Math.pow(Math.max(0, (u - 0.965) / 0.035), 2)) * fade * (lengthF > 0.0005 ? 1 : 0);
       aAttr.setX(i * 2, alpha); aAttr.setX(i * 2 + 1, alpha);
     }
     posAttr.needsUpdate = true;
@@ -659,14 +812,14 @@ export class GlobeView {
   scalePlane() {
     if (!this.plane) return;
     const camDist = this.camera.position.length();
-    const s = Math.max(0.3, (camDist - this.R) * 0.028);
+    const s = Math.max(0.3, (camDist - this.R) * 0.03);
     this.planeState.scale = s;
     const v = new THREE.Vector3(s, s, s);
     this.plane.matrix.copy(this.planeState.basis).scale(v).setPosition(this.planeState.pos);
     this.plane.matrixWorldNeedsUpdate = true;
     this.shadow.matrix.copy(this.planeState.basis).scale(v).setPosition(this.planeState.ground);
     this.shadow.matrixWorldNeedsUpdate = true;
-    this.shadow.material.opacity = this.planeState.shadow;
+    this.shadow.material.opacity = Math.min(0.6, this.planeState.shadow * 1.6);
   }
 
   /* ---------------- stars + pings ---------------- */

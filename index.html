@@ -41,21 +41,40 @@
       <div id="globe" class="globe"></div>
       <div class="globe-loading" aria-hidden="true"><span></span></div>
       <div class="window-view" id="window-view" aria-label="Window view">
-        <div class="cabin-wall">
-          <div class="porthole">
-            <div class="sky"></div>
-            <div class="sky-stars"></div>
-            <div class="sun-glow"></div>
-            <div class="cloud-layer"></div>
-            <div class="cloud-layer"></div>
-            <div class="cloud-layer"></div>
-            <svg class="wing" viewBox="0 0 400 200" preserveAspectRatio="none" aria-hidden="true">
-              <path d="M-10 200 L-10 150 L300 92 L360 86 L372 92 L340 104 L60 200 Z" fill="currentColor"/>
-              <path d="M300 92 L360 86 L372 92 L340 104 Z" fill="currentColor" opacity=".7"/>
-              <circle class="wing-light" cx="366" cy="90" r="3"/>
-            </svg>
-            <div class="glass"></div>
+        <div class="cabin-panel">
+          <div class="reading-light" aria-hidden="true"></div>
+          <div class="window-bezel">
+            <div class="window-recess">
+              <div class="window-pane">
+                <canvas class="sky-canvas"></canvas>
+                <svg class="wing" viewBox="0 0 400 560" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="wingTop" x1="1" y1="1" x2="0" y2="0">
+                      <stop offset="0" stop-color="#e9edf2"/><stop offset=".55" stop-color="#c3cbd6"/><stop offset="1" stop-color="#9aa4b3"/>
+                    </linearGradient>
+                    <linearGradient id="wingEdge" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#ffffff" stop-opacity=".2"/><stop offset="1" stop-color="#ffffff" stop-opacity=".9"/>
+                    </linearGradient>
+                    <linearGradient id="winglet" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stop-color="#d7dde6"/><stop offset="1" stop-color="#9aa4b3"/>
+                    </linearGradient>
+                  </defs>
+                  <g class="wing-body">
+                    <path d="M430 470 L430 600 L250 600 L60 418 L44 404 L52 398 L120 404 Z" fill="url(#wingTop)"/>
+                    <path d="M430 470 L120 404 L52 398" fill="none" stroke="url(#wingEdge)" stroke-width="2.4"/>
+                    <path d="M140 446 L330 600 M200 432 L380 560 M270 446 L430 540" stroke="#7d8798" stroke-width=".8" opacity=".55" fill="none"/>
+                    <path d="M44 404 L34 336 L42 334 L58 398 Z" fill="url(#winglet)"/>
+                    <circle class="wing-light" cx="50" cy="398" r="2.6"/>
+                    <circle class="wing-strobe" cx="40" cy="338" r="2"/>
+                  </g>
+                </svg>
+                <div class="pane-glass" aria-hidden="true"></div>
+                <span class="breather" aria-hidden="true"></span>
+              </div>
+              <div class="window-shade" tabindex="0"><span class="shade-lip"></span></div>
+            </div>
           </div>
+          <p class="window-caption" id="window-caption"></p>
         </div>
       </div>
     </section>
@@ -166,28 +185,40 @@
           <span class="hud-end" id="hud-track-to"></span>
         </div>
         <dl class="hud-stats">
-          <div><dt>Altitude</dt><dd id="hud-alt">0 ft</dd></div>
-          <div><dt>Speed</dt><dd id="hud-speed">0 km/h</dd></div>
-          <div><dt>To go</dt><dd id="hud-left">—</dd></div>
+          <div><dt>Alt · ft</dt><dd id="hud-alt">0</dd></div>
+          <div><dt>Speed · km/h</dt><dd id="hud-speed">0</dd></div>
+          <div><dt>To go · km</dt><dd id="hud-left">—</dd></div>
           <div><dt>Sun time</dt><dd id="hud-sun">—</dd></div>
         </dl>
         <div class="hud-controls">
-          <div class="segmented small" id="view-toggle" role="group" aria-label="View">
-            <button data-mode="globe" aria-pressed="true">Globe</button>
-            <button data-mode="window" aria-pressed="false">Window</button>
+          <div class="segmented glass-seg" id="view-toggle" role="group" aria-label="View">
+            <button data-mode="globe" aria-pressed="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.9 5.2 3.9 8.5S14.6 18.1 12 20.5M12 3.5C9.4 5.9 8.1 8.7 8.1 12s1.3 6.1 3.9 8.5"/></g></svg>
+              <span>Globe</span>
+            </button>
+            <button data-mode="window" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14.5c1.5-1.2 3-.9 4-.2s2.2.7 3-.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <span>Window</span>
+            </button>
           </div>
-          <button class="hud-btn" id="btn-pause" aria-pressed="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="currentColor"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="currentColor"/></svg><span class="lbl">Pause</span>
-          </button>
-          <button class="hud-btn" id="btn-mixer" aria-pressed="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><g stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 4v16M12 4v16M18 4v16"/></g><g fill="currentColor"><rect x="3.5" y="13" width="5" height="3" rx="1.5"/><rect x="9.5" y="7" width="5" height="3" rx="1.5"/><rect x="15.5" y="11" width="5" height="3" rx="1.5"/></g></svg><span class="lbl">Sound</span>
-          </button>
-          <button class="hud-btn" id="btn-shade">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.2 6.5h13.6v7H5.2z" fill="currentColor" opacity=".85"/><path d="M10 13.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="lbl">Shade</span>
-          </button>
-          <button class="hud-btn abort" id="btn-abort" aria-label="Hold for three seconds to abort the flight">
-            <svg class="abort-ring" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="20" class="track"/><circle cx="24" cy="24" r="20" class="fill" transform="rotate(-90 24 24)"/><path d="M18 18l12 12M30 18L18 30" class="x"/></svg><span class="lbl" id="abort-hint">Abort</span>
-          </button>
+          <div class="hud-actions">
+            <button class="round-btn" id="btn-pause" aria-pressed="false" aria-label="Pause">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5.5" width="3.4" height="13" rx="1.4" fill="currentColor"/><rect x="13.6" y="5.5" width="3.4" height="13" rx="1.4" fill="currentColor"/></svg>
+              <span class="lbl">Pause</span>
+            </button>
+            <button class="round-btn" id="btn-mixer" aria-pressed="false" aria-label="Ambience">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5v3M8 7.5v9M12 4.5v15M16 8v8M20 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+              <span class="lbl">Sound</span>
+            </button>
+            <button class="round-btn" id="btn-shade" aria-label="Close the shade">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6.6 6.2h10.8V13H6.6z" fill="currentColor"/><path d="M10.5 13h3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+              <span class="lbl">Shade</span>
+            </button>
+            <button class="round-btn abort" id="btn-abort" aria-label="Hold for three seconds to abort the flight">
+              <svg class="abort-ring" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="20" class="track"/><circle cx="24" cy="24" r="20" class="fill" transform="rotate(-90 24 24)"/><path d="M19 19l10 10M29 19L19 29" class="x"/></svg>
+              <span class="lbl" id="abort-hint">Abort</span>
+            </button>
+          </div>
         </div>
         <p class="hud-meta"><span id="hud-class"></span> · ETA <span id="hud-eta">--:--</span></p>
       </div>
@@ -196,9 +227,16 @@
     <!-- ===== ambience mixer ===== -->
     <section class="mixer" id="mixer" aria-label="Ambience mixer">
       <header class="mixer-head">
-        <button class="chip" id="mix-power" aria-pressed="false">Ambience off</button>
-        <span class="mixer-swipe">Swipe for more</span>
-        <button class="icon-btn" id="mix-close" aria-label="Close mixer">×</button>
+        <div>
+          <p class="mixer-title">Ambience</p>
+          <p class="mixer-sub">Swipe each slider up or down</p>
+        </div>
+        <button class="power" id="mix-power" aria-pressed="false" aria-label="Ambience on or off">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7.2 6.6a7 7 0 109.6 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="close-x" id="mix-close" aria-label="Close mixer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
       </header>
       <div class="mixer-track"></div>
     </section>

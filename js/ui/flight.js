@@ -3,7 +3,7 @@
 import { sfx } from "../audio.js";
 import { haptic } from "../haptics.js";
 import { reducedMotion } from "../spring.js";
-import { interpolateGC, localSolarHours } from "../geo.js";
+import { interpolateGC, localSolarHours, initialBearing, haversineKm } from "../geo.js";
 import { now, WARP } from "../clock.js";
 import { airports } from "../airports.js";
 import {
@@ -31,7 +31,7 @@ export class Flight {
     this.onLanded = onLanded;
     this.$ = (s) => root.querySelector(s);
     this.app = document.getElementById("app");
-    this.windowView = new WindowView(document.getElementById("window-view"));
+    this.windowView = new WindowView(document.getElementById("window-view"), { onShadeClosed: () => this.closeShade(true) });
     this.shade = document.getElementById("shade");
     this.mode = "globe";
 
@@ -79,7 +79,7 @@ export class Flight {
     const v = this.view;
     v.showRadar(false);
     v.setLabels([]);
-    v.setRoute(f.origin, f.dest, { dashed: false });
+    v.setRoute(f.origin, f.dest);
     v.updatePlane(progressOf(f), resume ? 1 : 0);
 
     const o = f.origin, d = f.dest;
@@ -154,6 +154,7 @@ export class Flight {
     const ease = 1 - Math.pow(1 - climb, 3);
     const v = this.view;
     v.updatePlane(p, ease);
+    v.setRouteProgress(p);
     const here = this.position(p);
 
     if (this.mode === "globe" && t > this.followFrom && t - v.lastUserInput > 8000 && !this.landing) {
@@ -161,7 +162,12 @@ export class Flight {
       const angle = Math.min(0.9, Math.max(0.12, (leftKm / 6371) * 0.7 + 0.06));
       v.glideTo({ lat: here.lat, lng: here.lng, altitude: v.fitAltitude(angle) }, 0.8);
     }
-    if (this.mode === "window") this.windowView.frame(dt, here.lat, here.lng, tNow);
+    if (this.mode === "window") {
+      const ahead = this.position(Math.min(1, p + 0.001));
+      const heading = initialBearing(here.lat, here.lng, ahead.lat, ahead.lng);
+      this.windowView.frame(dt, here.lat, here.lng, tNow, heading);
+      if (!this.lastCaption || t - this.lastCaption > 5000) { this.lastCaption = t; this.caption(here, tNow); }
+    }
 
     if (p >= 1 && !this.landing) { this.land(); return; }
 
@@ -180,9 +186,9 @@ export class Flight {
     const alt = f.pausedAt ? this.lastAlt ?? 0 : Math.round((this.cruiseFt * profile) / 100) * 100;
     this.lastAlt = alt;
     const speed = f.pausedAt ? 0 : Math.round(f.speedKmh * Math.min(1, 0.32 + climb * 0.68));
-    this.$("#hud-alt").textContent = `${alt.toLocaleString("en-US")} ft`;
-    this.$("#hud-speed").textContent = `${speed.toLocaleString("en-US")} km/h`;
-    this.$("#hud-left").textContent = `${Math.round(f.distKm * (1 - p)).toLocaleString("en-US")} km`;
+    this.$("#hud-alt").textContent = alt.toLocaleString("en-US");
+    this.$("#hud-speed").textContent = speed.toLocaleString("en-US");
+    this.$("#hud-left").textContent = Math.round(f.distKm * (1 - p)).toLocaleString("en-US");
     const sun = localSolarHours(here.lng, new Date(tNow));
     this.$("#hud-sun").textContent = `${pad(Math.floor(sun))}:${pad(Math.floor((sun % 1) * 60))}`;
     const eta = new Date(Date.now() + remaining / WARP);
@@ -190,6 +196,18 @@ export class Flight {
     const phase = f.pausedAt ? "Holding" : this.phase(p, elapsed);
     const ph = this.$("#hud-phase");
     if (ph.textContent !== phase) ph.textContent = phase;
+  }
+
+  caption(here, tNow) {
+    let best = null, bd = Infinity;
+    for (const a of airports) {
+      if (!a.large) continue;
+      const d = haversineKm(here.lat, here.lng, a.lat, a.lng);
+      if (d < bd) { bd = d; best = a; }
+    }
+    const sun = localSolarHours(here.lng, new Date(tNow));
+    const near = best ? `${bd < 60 ? "Over" : "Near"} ${best.city}` : "Over open water";
+    document.getElementById("window-caption").textContent = `${near} · Sun ${pad(Math.floor(sun))}:${pad(Math.floor((sun % 1) * 60))}`;
   }
 
   phase(p, elapsed) {
@@ -268,13 +286,20 @@ export class Flight {
 
   setupMixer() {
     const panel = document.getElementById("mixer");
+    const ICONS = {
+      engine: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 10c-.5-2.6.6-4.6 2.8-5.6M14 12c2.6-.5 4.6.6 5.6 2.8M12 14c.5 2.6-.6 4.6-2.8 5.6M10 12c-2.6.5-4.6-.6-5.6-2.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+      rain: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14.5a4 4 0 01.6-8 5.5 5.5 0 0110.4 1.8A3.3 3.3 0 0117.5 14.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.5 17.5l-1 2M12.5 17.5l-1 2M16.5 17.5l-1 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
+      cabin: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9c3-2 5.5 2 8.5 0s5.5-2 8.5 0M3.5 14c3-2 5.5 2 8.5 0s5.5-2 8.5 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
+    };
     panel.querySelector(".mixer-track").innerHTML = CHANNELS.map((c) => `
-      <div class="mix-card" data-ch="${c.id}">
-        <div class="mix-head"><b>${c.name}</b><small>${c.hint}</small></div>
-        <div class="fader" data-ch="${c.id}" role="slider" tabindex="0" aria-label="${c.name} level" aria-valuemin="0" aria-valuemax="100">
-          <div class="fader-fill"></div><div class="fader-knob"></div>
+      <div class="mix-ch" data-ch="${c.id}">
+        <div class="vslider" data-ch="${c.id}" role="slider" tabindex="0" aria-label="${c.name} level" aria-valuemin="0" aria-valuemax="100" aria-orientation="vertical">
+          <div class="vslider-fill"></div>
+          <span class="vslider-icon">${ICONS[c.id]}</span>
+          <span class="vslider-val"></span>
         </div>
-        <span class="mix-val"></span>
+        <b>${c.name}</b>
+        <small>${c.hint}</small>
       </div>`).join("");
     panel.querySelector("#mix-power").addEventListener("click", () => {
       if (ambienceOn()) stopAmbience(); else startAmbience();
@@ -282,20 +307,31 @@ export class Flight {
       this.syncMixer();
     });
     panel.querySelector("#mix-close").addEventListener("click", () => this.toggleMixer(false));
-    panel.querySelectorAll(".fader").forEach((el) => {
-      const set = (e) => {
-        const r = el.getBoundingClientRect();
-        const v = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-        setLevel(el.dataset.ch, Math.round(v * 20) / 20);
-        if (!ambienceOn()) startAmbience();
-        this.syncMixer();
-      };
-      el.addEventListener("pointerdown", (e) => { el.setPointerCapture(e.pointerId); el.dataset.drag = "1"; set(e); });
-      el.addEventListener("pointermove", (e) => { if (el.dataset.drag) set(e); });
-      el.addEventListener("pointerup", () => { delete el.dataset.drag; haptic("tap"); });
-      el.addEventListener("pointercancel", () => { delete el.dataset.drag; });
+    panel.querySelectorAll(".vslider").forEach((el) => {
+      let start = null;
+      el.addEventListener("pointerdown", (e) => {
+        el.setPointerCapture(e.pointerId);
+        start = { y: e.clientY, v: levels()[el.dataset.ch], h: el.clientHeight };
+        el.classList.add("is-active");
+      });
+      el.addEventListener("pointermove", (e) => {
+        if (!start) return;
+        // relative drag like iOS: no jump to the finger, just follow it
+        const v = Math.max(0, Math.min(1, start.v + (start.y - e.clientY) / start.h));
+        const q = Math.round(v * 40) / 40;
+        if (q !== levels()[el.dataset.ch]) {
+          setLevel(el.dataset.ch, q);
+          if ((q === 0 || q === 1) && !el.dataset.edge) { haptic("tap"); el.dataset.edge = "1"; }
+          if (q > 0 && q < 1) delete el.dataset.edge;
+          if (!ambienceOn() && q > 0) startAmbience();
+          this.syncMixer();
+        }
+      });
+      const end = () => { start = null; el.classList.remove("is-active"); };
+      el.addEventListener("pointerup", end);
+      el.addEventListener("pointercancel", end);
       el.addEventListener("keydown", (e) => {
-        const d = { ArrowRight: 0.05, ArrowUp: 0.05, ArrowLeft: -0.05, ArrowDown: -0.05 }[e.key];
+        const d = { ArrowUp: 0.05, ArrowRight: 0.05, ArrowDown: -0.05, ArrowLeft: -0.05 }[e.key];
         if (!d) return;
         e.preventDefault();
         setLevel(el.dataset.ch, Math.max(0, Math.min(1, levels()[el.dataset.ch] + d)));
@@ -307,15 +343,14 @@ export class Flight {
   syncMixer() {
     const l = levels();
     const panel = document.getElementById("mixer");
-    panel.querySelectorAll(".mix-card").forEach((card) => {
-      const v = l[card.dataset.ch];
-      card.style.setProperty("--lvl", v);
-      card.querySelector(".mix-val").textContent = `${Math.round(v * 100)}`;
-      card.querySelector(".fader").setAttribute("aria-valuenow", Math.round(v * 100));
+    panel.querySelectorAll(".mix-ch").forEach((ch) => {
+      const v = l[ch.dataset.ch];
+      ch.style.setProperty("--lvl", v);
+      ch.querySelector(".vslider-val").textContent = `${Math.round(v * 100)}`;
+      ch.querySelector(".vslider").setAttribute("aria-valuenow", Math.round(v * 100));
     });
     const on = ambienceOn();
     panel.classList.toggle("is-on", on);
-    panel.querySelector("#mix-power").textContent = on ? "Ambience on" : "Ambience off";
     panel.querySelector("#mix-power").setAttribute("aria-pressed", on);
     this.$("#btn-mixer").setAttribute("aria-pressed", on);
   }
@@ -338,8 +373,14 @@ export class Flight {
 
   /* ================= shade (pure mode) ================= */
 
-  closeShade() {
-    sfx.shade(true);
+  closeShade(fromWindow = false) {
+    if (this.mode === "window" && !fromWindow) {
+      this.windowView.setShade(1, true);
+      sfx.shade(true);
+      setTimeout(() => this.closeShade(true), 650);
+      return;
+    }
+    if (!fromWindow) sfx.shade(true);
     this.toggleMixer(false);
     this.shade.classList.add("is-down");
     this.app.classList.add("shade-down");
@@ -353,7 +394,10 @@ export class Flight {
   }
 
   openShade() {
-    if (this.shade.classList.contains("is-down")) sfx.shade(false);
+    if (this.shade.classList.contains("is-down")) {
+      sfx.shade(false);
+      if (this.mode === "window") setTimeout(() => this.windowView.setShade(0, true), 300);
+    }
     this.shade.classList.remove("is-down", "show-raise");
     this.app.classList.remove("shade-down");
     this.syncRendering();

@@ -238,7 +238,7 @@ export class Departure {
     this.$("#dest-time").textContent = formatDuration(m);
     card.hidden = false;
     card.classList.remove("is-new"); void card.offsetWidth; card.classList.add("is-new");
-    this.view.setRoute(this.home, a);
+    this.view.setRoute(this.home, a, { preview: true });
     this.dialChanged(this.dial.value);
     this.updateLabels();
   }
