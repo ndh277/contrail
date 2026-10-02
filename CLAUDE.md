@@ -88,7 +88,6 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 - **Typography:** choose a characterful display face for codes and numbers (a departure-board or ticket feel), a calm readable body face, and a monospace for flight data. Use Google Fonts, avoid Inter/Space Grotesk, and record the choices as CSS tokens.
 - **Themes:** the night palette is the default. A day palette switches in automatically by local time (or by a manual toggle).
 - **Motion:** slow and deliberate. Use spring physics for physical objects (stubs, tags, stamps). Respect `prefers-reduced-motion`.
-- Icons, illustrations and the app icon are drawn in code (SVG or canvas); no third-party icon or image files.
 
 ### 5.1 Design principles (added by Henry after M2)
 
