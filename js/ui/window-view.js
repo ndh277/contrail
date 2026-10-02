@@ -409,8 +409,7 @@ export class WindowView {
     this.tilt.y += (this.target.y - this.tilt.y) * k;
     const bank = -this.tilt.x * 0.006 + Math.sin(this.time * 0.21) * 0.012;
     const pitch = -0.2 + this.tilt.y * 0.004 + Math.sin(this.time * 0.13) * 0.006;
-    this.root.style.setProperty("--bank", `${(bank / RAD).toFixed(2)}deg`);
-    this.root.style.setProperty("--parallax", `${(this.tilt.x * 0.25).toFixed(1)}px`);
+    this.setVars(`${(bank / RAD).toFixed(1)}deg`, `${(this.tilt.x * 0.25).toFixed(1)}px`);
 
     const gl = this.gl, u = this.u, L = this.look;
     gl.uniform2f(u.uRes, this.canvas.width, this.canvas.height);
@@ -429,6 +428,12 @@ export class WindowView {
     gl.uniform3fv(u.uGround, L.ground);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     this.drawPuffs(dt, bank, pitch);
+  }
+
+  /** CSS variables for the wing and bezel, written only when they change (no restyle per frame). */
+  setVars(bank, parallax) {
+    if (bank !== this.lastBank) { this.lastBank = bank; this.root.style.setProperty("--bank", bank); }
+    if (parallax !== this.lastPar) { this.lastPar = parallax; this.root.style.setProperty("--parallax", parallax); }
   }
 
   /** When the 3D globe renders the view itself: keep the lighting vars, wing parallax and tilt. */

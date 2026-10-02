@@ -403,6 +403,7 @@ export class GlobeView {
     this.viewMode = "globe";
 
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
+    this.maxPixelRatio = this.pixelRatio;
     this.renderer.setPixelRatio(this.pixelRatio);
     this.controls.minDistance = this.R * 1.08;
     this.controls.maxDistance = this.R * 6;
@@ -485,6 +486,7 @@ export class GlobeView {
   throttleRendering() {
     const r = this.renderer;
     const draw = r.render.bind(r);
+    this.drawUnthrottled = draw;
     this.fpsCap = 30;
     this.burstUntil = 0;
     this.lastDraw = 0;
@@ -493,11 +495,48 @@ export class GlobeView {
       const now = performance.now();
       const cap = now < this.burstUntil ? 60 : this.fpsCap;
       if (cap <= 0 || now - this.lastDraw < 1000 / cap - 3) return;
+      this.pace(now, cap);
       this.lastDraw = now;
+      this.draws = (this.draws || 0) + 1;
       draw(scene, camera);
     };
     const wake = () => this.wake(1200);
     for (const ev of ["pointerdown", "pointermove", "wheel", "keydown"]) addEventListener(ev, (e) => { if (ev !== "pointermove" || e.buttons) wake(); }, { passive: true, capture: true });
+  }
+
+  /**
+   * Dynamic resolution: if frames keep arriving late at 60 fps, step the pixel ratio
+   * down a notch; once they're comfortably on time again, step it back up toward the
+   * quality ceiling. Smooth first, then as sharp as the device allows.
+   */
+  pace(now, cap) {
+    const gap = now - this.lastDraw;
+    if (cap < 50 || gap > 250) { this.slowSince = this.fastSince = 0; return; }   // calm rate or a pause
+    this.frameEma = this.frameEma ? this.frameEma * 0.92 + gap * 0.08 : gap;
+    const since = now - (this.lastResChange || 0);
+    if (this.frameEma > 19.5) {
+      this.fastSince = 0;
+      this.slowSince ||= now;
+      if (now - this.slowSince > 1200 && since > 2500 && this.pixelRatio > 1) {
+        this.setResolution(Math.max(1, this.pixelRatio - 0.25));
+        this.slowSince = 0;
+      }
+    } else if (this.frameEma < 17.6) {
+      this.slowSince = 0;
+      this.fastSince ||= now;
+      if (now - this.fastSince > 6000 && since > 6000 && this.pixelRatio < this.maxPixelRatio) {
+        this.setResolution(Math.min(this.maxPixelRatio, this.pixelRatio + 0.25));
+        this.fastSince = 0;
+      }
+    }
+  }
+
+  setResolution(pr) {
+    this.pixelRatio = pr;
+    this.lastResChange = performance.now();
+    this.renderer.setPixelRatio(pr);
+    this.resize();
+    this.scene.traverse((o) => { const u = o.material?.uniforms?.uPx; if (u) u.value = pr; });
   }
 
   /** Draw at full rate for a while (input, camera moves, screen changes). */

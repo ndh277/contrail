@@ -194,11 +194,17 @@ export class Flight {
     this.lastHud = t;
     const remaining = f.durationMin * 60000 - flownMs(f, tNow);
     const text = clockText(remaining);
-    this.$("#hud-clock").textContent = text;
-    this.$("#hud-mini-clock").textContent = text;
-    document.getElementById("shade-clock").textContent = text;
-    this.$("#hud-progress").style.transform = `scaleX(${p})`;
-    this.$("#hud-craft").style.left = `${p * 100}%`;
+    // write to the DOM only when a value really changes (each write re-composites the glass)
+    const put = (el, v) => { if (el && el.textContent !== v) el.textContent = v; };
+    put(this.$("#hud-clock"), text);
+    put(this.$("#hud-mini-clock"), text);
+    put(document.getElementById("shade-clock"), text);
+    const pp = p.toFixed(4);
+    if (pp !== this.lastP) {
+      this.lastP = pp;
+      this.$("#hud-progress").style.transform = `scaleX(${pp})`;
+      this.$("#hud-craft").style.left = `${(p * 100).toFixed(2)}%`;
+    }
 
     // displayed altitude: brisk initial climb, gentle final descent
     const easeOut = (x) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 2;
@@ -206,13 +212,13 @@ export class Flight {
     const alt = f.pausedAt ? this.lastAlt ?? 0 : Math.round((this.cruiseFt * profile) / 100) * 100;
     this.lastAlt = alt;
     const speed = f.pausedAt ? 0 : Math.round(f.speedKmh * Math.min(1, 0.32 + climb * 0.68));
-    this.$("#hud-alt").textContent = alt.toLocaleString("en-US");
-    this.$("#hud-speed").textContent = speed.toLocaleString("en-US");
-    this.$("#hud-left").textContent = Math.round(f.distKm * (1 - p)).toLocaleString("en-US");
+    put(this.$("#hud-alt"), alt.toLocaleString("en-US"));
+    put(this.$("#hud-speed"), speed.toLocaleString("en-US"));
+    put(this.$("#hud-left"), Math.round(f.distKm * (1 - p)).toLocaleString("en-US"));
     const sun = localSolarHours(here.lng, new Date(tNow));
-    this.$("#hud-sun").textContent = `${pad(Math.floor(sun))}:${pad(Math.floor((sun % 1) * 60))}`;
+    put(this.$("#hud-sun"), `${pad(Math.floor(sun))}:${pad(Math.floor((sun % 1) * 60))}`);
     const eta = new Date(Date.now() + remaining / WARP);
-    this.$("#hud-eta").textContent = eta.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    put(this.$("#hud-eta"), eta.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
     const phase = f.pausedAt ? "Holding" : this.phase(p, elapsed);
     const ph = this.$("#hud-phase");
     if (ph.textContent !== phase) ph.textContent = phase;
@@ -339,8 +345,8 @@ export class Flight {
     this.syncFps();
   }
 
-  /** The plane creeps; nobody needs 120 frames a second to watch it. */
-  syncFps() { this.view.setFps(this.idle ? 20 : 30); }
+  /** 60 fps while the HUD is up; a steady 30 once it has stepped aside (the plane only creeps). */
+  syncFps() { this.view.setFps(this.idle ? 30 : 60); }
 
   /** Keep the globe centred in the space the HUD leaves free. */
   layoutOffset() {

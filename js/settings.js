@@ -78,8 +78,8 @@ export function qualityTier() {
 }
 
 export const QUALITY = {
-  // the globe is soft imagery: past ~2x the extra pixels only cost heat
-  high: { pixelRatio: 2, texture: "4k" },
-  medium: { pixelRatio: 1.5, texture: "4k" },
-  low: { pixelRatio: 1.15, texture: "2k" },
+  // the ceiling; the globe lowers it on the fly when a device can't keep up
+  high: { pixelRatio: 2.5, texture: "4k" },
+  medium: { pixelRatio: 1.75, texture: "4k" },
+  low: { pixelRatio: 1.25, texture: "2k" },
 };

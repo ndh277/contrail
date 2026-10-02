@@ -99,7 +99,7 @@ export class Departure {
     if (this.selected >= 0) this.targetRange = Math.max(this.targetRange, this.dist[this.selected] + 1);
     this.updateReadout();
     const now = performance.now();
-    if (!this.lastSuggest || now - this.lastSuggest > 140) this.refreshSuggestions(false);
+    if (!this.lastSuggest || now - this.lastSuggest > 220) this.refreshSuggestions(false);
   }
 
   updateReadout() {
@@ -185,6 +185,10 @@ export class Departure {
     this.suggestions = top.map((r) => r[1]);
     this.$("#hubs-only").setAttribute("aria-pressed", this.hubsOnly);
     const ul = this.$("#suggestions");
+    // rebuilding the list costs a layout of the whole glass sheet: only when it changed
+    const key = `${v}|${this.selected}|${this.hubsOnly}|${this.suggestions.join(",")}`;
+    if (key === this.lastListKey && !final) return;
+    this.lastListKey = key;
     if (!top.length) {
       ul.innerHTML = `<li class="empty">
         <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="18" fill="none" stroke="currentColor" stroke-dasharray="3 4"/><circle cx="24" cy="24" r="3" fill="currentColor"/></svg>

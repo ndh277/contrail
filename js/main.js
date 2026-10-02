@@ -40,7 +40,7 @@ function show(screen) {
   const prev = app.dataset.screen;
   const apply = () => { app.dataset.screen = screen; };
   // calm frame rates where the globe is only a backdrop (flight sets its own)
-  const fps = { departure: 30, checkin: 10, pass: 12, logbook: 6, landing: 30 }[screen];
+  const fps = { departure: 60, checkin: 15, pass: 15, logbook: 10, landing: 60 }[screen];
   if (fps && globeView) globeView.setFps(fps);
   const morph = document.startViewTransition && prev !== "boot" && prev !== screen &&
     !matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -223,6 +223,23 @@ async function boot() {
   addEventListener("keyup", (e) => { if (e.key === "Escape" && app.dataset.screen === "flight") flightView.abortCancel?.(); });
 
   window.contrail = { view, departure, checkin, pass, flightView, landing, logbook, settings };
+
+  // ?debug — a small meter: globe frames per second, frame time, resolution
+  if (new URLSearchParams(location.search).has("debug")) {
+    const meter = document.createElement("div");
+    meter.style.cssText = "position:fixed;left:8px;bottom:calc(env(safe-area-inset-bottom) + 8px);z-index:99;padding:6px 9px;border-radius:10px;background:rgba(0,0,0,.72);color:#9fe8a8;font:500 11px/1.35 'IBM Plex Mono',monospace;pointer-events:none;white-space:pre";
+    document.body.append(meter);
+    let lastDraws = 0, lastT = performance.now(), worst = 0, prev = performance.now();
+    const rafLoop = (t) => { worst = Math.max(worst, t - prev); prev = t; requestAnimationFrame(rafLoop); };
+    requestAnimationFrame(rafLoop);
+    setInterval(() => {
+      const now = performance.now();
+      const fps = ((view.draws || 0) - lastDraws) / ((now - lastT) / 1000);
+      lastDraws = view.draws || 0; lastT = now;
+      meter.textContent = `globe ${fps.toFixed(0)} fps (cap ${now < view.burstUntil ? 60 : view.fpsCap})\nframe ${(view.frameEma || 0).toFixed(1)} ms · worst ${worst.toFixed(0)} ms\nres ${view.pixelRatio}x / ${view.maxPixelRatio}x · ${view.tier}`;
+      worst = 0;
+    }, 1000);
+  }
 }
 
 window.addEventListener("load", boot);
