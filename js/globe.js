@@ -356,6 +356,7 @@ export class GlobeView {
       .htmlElement((d) => d.el);
 
     this.R = this.globe.getGlobeRadius();
+    this.cheapPicking();
 
     // moving clouds, a scattering atmosphere, and deep space behind everything
     this.clouds = new THREE.Mesh(
@@ -493,9 +494,11 @@ export class GlobeView {
     r.render = (scene, camera) => {
       if (r.getRenderTarget() !== null) return draw(scene, camera);     // bakes, offscreen work
       const now = performance.now();
-      const cap = now < this.burstUntil ? 60 : this.fpsCap;
+      // while touched or moving: every display frame (120 Hz where the screen has it)
+      const cap = now < this.burstUntil ? Infinity : this.fpsCap;
       if (cap <= 0 || now - this.lastDraw < 1000 / cap - 3) return;
       this.pace(now, cap);
+      this.beforeDraw(Math.min(0.1, Math.max(0.001, (now - (this.lastDraw || now - 16)) / 1000)));
       this.lastDraw = now;
       this.draws = (this.draws || 0) + 1;
       draw(scene, camera);
@@ -510,8 +513,9 @@ export class GlobeView {
    * quality ceiling. Smooth first, then as sharp as the device allows.
    */
   pace(now, cap) {
-    const gap = now - this.lastDraw;
+    let gap = now - this.lastDraw;
     if (cap < 50 || gap > 250) { this.slowSince = this.fastSince = 0; return; }   // calm rate or a pause
+    if (cap === Infinity && gap < 12) gap = 16;   // on 120 Hz screens, judge against 60 fps
     this.frameEma = this.frameEma ? this.frameEma * 0.92 + gap * 0.08 : gap;
     const since = now - (this.lastResChange || 0);
     if (this.frameEma > 19.5) {
@@ -537,6 +541,34 @@ export class GlobeView {
     this.renderer.setPixelRatio(pr);
     this.resize();
     this.scene.traverse((o) => { const u = o.material?.uniforms?.uPx; if (u) u.value = pr; });
+  }
+
+  /**
+   * globe.gl ray-casts the whole scene under the pointer every 50 ms (for hover),
+   * triangle by triangle. Only the Earth needs picking (taps on the globe), so every
+   * other object opts out and the Earth answers with an exact ray–sphere test.
+   */
+  cheapPicking() {
+    const noop = () => {};
+    for (const C of [THREE.Mesh, THREE.Points, THREE.Line, THREE.Sprite]) if (C?.prototype) C.prototype.raycast = noop;
+    const R = this.R, sphere = new THREE.Sphere(), hit = new THREE.Vector3();
+    const patch = () => {
+      this.scene.traverse((o) => {
+        if (o.__cheapPick) return;
+        // three.js ray-casts invisible objects too; globe.gl keeps several hidden ones around
+        if (o.material !== this.material || !o.visible) { if (o.raycast !== noop) o.raycast = noop; return; }
+        o.__cheapPick = true;
+        this.picking = true;
+        o.raycast = function (raycaster, out) {
+          sphere.center.setFromMatrixPosition(this.matrixWorld);
+          sphere.radius = R;
+          const p = raycaster.ray.intersectSphere(sphere, hit);
+          if (p) out.push({ distance: raycaster.ray.origin.distanceTo(p), point: p.clone(), object: this });
+        };
+      });
+    };
+    this.patchPicking = patch;          // the Earth mesh may appear a tick later; beforeDraw retries
+    patch();
   }
 
   /** Draw at full rate for a while (input, camera moves, screen changes). */
@@ -622,6 +654,7 @@ export class GlobeView {
   resize() {
     const { clientWidth: w, clientHeight: h } = this.el;
     if (!w || !h) return;
+    this.size = { w, h };            // cached: reading layout every frame forces a reflow
     this.globe.width(w).height(h);
     this.applyCenterOffset();
   }
@@ -654,7 +687,7 @@ export class GlobeView {
 
   applyCenterOffset() {
     const cam = this.camera;
-    const { clientWidth: w, clientHeight: h } = this.el;
+    const { w, h } = this.size || { w: this.el.clientWidth, h: this.el.clientHeight };
     const o = this.centerOffset || { dx: 0, dy: 0 };
     if (!w || !h) return;
     if (!o.dx && !o.dy) cam.clearViewOffset();
@@ -674,22 +707,31 @@ export class GlobeView {
     this.time.value = (t / 1000) * 0.6;
     // the weather drifts continuously (the field itself is baked once)
     this.cloudShift.value += dt * 0.00045;
-    this.sky.position.copy(this.camera.position);
-    if (this.airSky) this.airSky.position.copy(this.camera.position);
     if (this.navLights) this.navLights.material.uniforms.uTime.value = t / 1000;
-    if (this.route) {
-      const u = this.route.material.uniforms;
-      u.uTime.value = t / 1000;
-      // keep the line ~2 px thick at any zoom (the mesh is 3x the core for the glow)
-      const ref = this.viewMode === "globe" ? this.camera.position.length() - this.R : this.camera.position.distanceTo(this.planeState?.pos || this.camera.position) + 0.4;
-      u.uWidth.value = Math.max(0.004, ref * (this.viewMode === "globe" ? 0.0042 : 0.006)) * (this.pixelRatio > 1.5 ? 1 : 1.2);
-    }
+    if (this.route) this.route.material.uniforms.uTime.value = t / 1000;
     this.stepPings(t);
     this.stepEndpoints(t);
     for (const fn of this.frameHooks) fn(t, dt);
+  }
+
+  /**
+   * Camera moves happen only on frames that are actually drawn, right before the draw.
+   * globe.gl positions the HTML labels from the same camera straight after, so labels
+   * and globe always move together (no shimmer between a 120 Hz label layer and the canvas).
+   */
+  beforeDraw(dt) {
+    if (!this.picking) this.patchPicking?.();
     if (this.viewMode === "globe") this.stepCamera(dt);
     else this.stepCloseCamera(dt);
     if (this.plane) this.scalePlane();
+    this.sky.position.copy(this.camera.position);
+    if (this.airSky) this.airSky.position.copy(this.camera.position);
+    if (this.route) {
+      // keep the line ~2 px thick at any zoom (the mesh is 3x the core for the glow)
+      const u = this.route.material.uniforms;
+      const ref = this.viewMode === "globe" ? this.camera.position.length() - this.R : this.camera.position.distanceTo(this.planeState?.pos || this.camera.position) + 0.4;
+      u.uWidth.value = Math.max(0.004, ref * (this.viewMode === "globe" ? 0.0042 : 0.006)) * (this.pixelRatio > 1.5 ? 1 : 1.2);
+    }
   }
 
   /* ---------------- camera ---------------- */
@@ -698,8 +740,8 @@ export class GlobeView {
   fitAltitude(angle, margin = 0.82) {
     const cam = this.camera;
     const vfov = (cam.fov * Math.PI) / 180;
-    const H = this.el.clientHeight || 1;
-    const vis = this.visible || { w: this.el.clientWidth || 1, h: H };
+    const H = this.size?.h || this.el.clientHeight || 1;
+    const vis = this.visible || { w: this.size?.w || this.el.clientWidth || 1, h: H };
     const t = Math.tan(vfov / 2);
     const half = Math.min(Math.atan(t * vis.h / H), Math.atan(t * Math.max(0.3 * H, vis.w) / H)) * margin;
     const a = Math.min(angle, Math.PI / 2 * 0.98);
@@ -1330,6 +1372,6 @@ export class GlobeView {
   kmPerPixel() {
     const alt = this.globe.pointOfView().altitude;
     const vfov = (this.camera.fov * Math.PI) / 180;
-    return (alt * EARTH_RADIUS_KM * 2 * Math.tan(vfov / 2)) / (this.el.clientHeight || 1);
+    return (alt * EARTH_RADIUS_KM * 2 * Math.tan(vfov / 2)) / (this.size?.h || this.el.clientHeight || 1);
   }
 }

@@ -14,7 +14,9 @@ const hm = (m) => {
   const h = Math.floor(m / 60), r = m % 60;
   return h ? `${h}:${String(r).padStart(2, "0")}` : `${r}`;
 };
-const clock = (d) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+const HHMM = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+const clock = (d) => HHMM.format(d);
+const NUM = new Intl.NumberFormat("en-US");
 
 /** Radar ring spacing (minutes) that keeps 2-6 rings on screen. */
 const ringStep = (m) => (m <= 90 ? 15 : m <= 240 ? 30 : m <= 480 ? 60 : 120);
@@ -152,8 +154,10 @@ export class Departure {
     }
     this.litCount = n;
     const count = Math.max(0, n - 1);
-    this.$("#range-km").textContent = Math.round(this.targetRange).toLocaleString("en-US");
-    this.$("#range-count").textContent = count.toLocaleString("en-US");
+    // per frame: format and write only when the numbers move
+    const km = Math.round(this.targetRange);
+    if (km !== this.shownKm) { this.shownKm = km; this.$("#range-km").textContent = NUM.format(km); }
+    if (count !== this.shownCount) { this.shownCount = count; this.$("#range-count").textContent = NUM.format(count); }
 
     // camera keeps the ring in frame unless the user is steering the globe
     if (this.view.lastUserInput < this.followSince) {

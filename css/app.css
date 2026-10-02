@@ -1267,3 +1267,30 @@ input[type="search"], input[type="text"] {
   .glass-seg button svg { width: 17px; height: 17px; }
   .hud-actions { flex: 1 1 100%; justify-content: space-between; padding: 0 4px; }
 }
+
+/* ================= touch devices: tinted glass instead of live blur =================
+   A backdrop blur has to be recomputed every time the globe underneath redraws. On
+   phone and tablet GPUs, a sheet, a row of buttons and a dozen blurred labels over a
+   60 fps WebGL canvas is what made scrolling and dragging stutter. Here the same
+   panels are a denser tint, which reads almost identically and costs nothing. */
+@media (pointer: coarse) {
+  :root {
+    --glass: rgba(24, 32, 52, 0.84);
+    --glass-strong: rgba(17, 23, 39, 0.92);
+    --sheet-bg: rgba(14, 19, 32, 0.94);
+  }
+  :root[data-theme="day"] {
+    --glass: rgba(250, 251, 253, 0.88);
+    --glass-strong: rgba(250, 251, 253, 0.94);
+    --sheet-bg: rgba(246, 248, 251, 0.95);
+  }
+  *, *::before, *::after, dialog::backdrop { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  .globe-label b { background: rgba(12, 16, 28, 0.84); }
+  .map-tag .tag-card { background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 60%), rgba(12, 16, 28, 0.86); }
+  .hud-top { background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 50%), rgba(12, 16, 28, 0.86); }
+  .hud-bottom { background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 40%), rgba(12, 16, 28, 0.88); }
+  .hud-mini { background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 60%), rgba(12, 16, 28, 0.86); }
+  .landing-card { background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 35%), rgba(12, 16, 28, 0.86); }
+  .mixer { background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 40%), rgba(12, 16, 28, 0.94); }
+  .sheet-dialog::backdrop { background: rgba(2, 4, 9, 0.7); }
+}

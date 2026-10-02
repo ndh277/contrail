@@ -27,6 +27,9 @@ function ensure() {
 export function unlockAudio() {
   const once = () => { unlocked = true; ensure(); removeEventListener("pointerdown", once, true); };
   addEventListener("pointerdown", once, true);
+  // build the context and noise buffer while idle, so the first touch only has to resume it
+  const warm = () => { if (!ctx) { ensure(); if (!unlocked) ctx?.suspend?.(); } };
+  (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(warm, { timeout: 3000 });
 }
 
 export function setVolume(v) { if (master) master.gain.value = v; }

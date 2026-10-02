@@ -7,7 +7,12 @@
 // Internally everything moves in tape pixels; minutes are derived from that.
 import { reducedMotion } from "../spring.js";
 
-const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+// theme colours, read once per theme (getComputedStyle every frame forces a style recalc)
+const cssCache = new Map();
+const css = (name) => {
+  if (!cssCache.has(name)) cssCache.set(name, getComputedStyle(document.documentElement).getPropertyValue(name).trim());
+  return cssCache.get(name);
+};
 
 export const KNEE = 180;          // minutes where the tape compresses
 const PX_FINE = 13;               // px per minute below the knee
@@ -53,7 +58,7 @@ export class TimeDial {
 
     new ResizeObserver(() => this.resize()).observe(el);
     this.setStyle(style);
-    new MutationObserver(() => this.draw())
+    new MutationObserver(() => { cssCache.clear(); this.draw(); })
       .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   }
 

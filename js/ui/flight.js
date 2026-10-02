@@ -14,6 +14,9 @@ import { WindowView } from "./window-view.js";
 import { toast } from "./common.js";
 import { Companion } from "./companion.js";
 
+const HHMM = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+const NUM = new Intl.NumberFormat("en-US");
+
 const CLIMB_SECONDS = 9;
 const TAKEOFF_MOVE_MS = 6500;
 const ABORT_HOLD_MS = 3000;
@@ -212,13 +215,13 @@ export class Flight {
     const alt = f.pausedAt ? this.lastAlt ?? 0 : Math.round((this.cruiseFt * profile) / 100) * 100;
     this.lastAlt = alt;
     const speed = f.pausedAt ? 0 : Math.round(f.speedKmh * Math.min(1, 0.32 + climb * 0.68));
-    put(this.$("#hud-alt"), alt.toLocaleString("en-US"));
-    put(this.$("#hud-speed"), speed.toLocaleString("en-US"));
-    put(this.$("#hud-left"), Math.round(f.distKm * (1 - p)).toLocaleString("en-US"));
+    put(this.$("#hud-alt"), NUM.format(alt));
+    put(this.$("#hud-speed"), NUM.format(speed));
+    put(this.$("#hud-left"), NUM.format(Math.round(f.distKm * (1 - p))));
     const sun = localSolarHours(here.lng, new Date(tNow));
     put(this.$("#hud-sun"), `${pad(Math.floor(sun))}:${pad(Math.floor((sun % 1) * 60))}`);
     const eta = new Date(Date.now() + remaining / WARP);
-    put(this.$("#hud-eta"), eta.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
+    put(this.$("#hud-eta"), HHMM.format(eta));
     const phase = f.pausedAt ? "Holding" : this.phase(p, elapsed);
     const ph = this.$("#hud-phase");
     if (ph.textContent !== phase) ph.textContent = phase;
@@ -227,7 +230,7 @@ export class Flight {
       this.companion.update({
         clock: text, progress: p, from: f.origin.iata, to: f.dest.iata, phase, flightNo: f.flightNo,
         tag: f.tag?.name, tagColor: f.tag?.color, kmLeft: Math.max(0, Math.round(f.distKm * (1 - p))),
-        eta: eta.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), minutesLeft: Math.ceil(remaining / 60000),
+        eta: HHMM.format(eta), minutesLeft: Math.ceil(remaining / 60000),
       });
     }
   }
@@ -239,7 +242,7 @@ export class Flight {
       const mk = (cls) => { const el = document.createElement("div"); el.className = `globe-label map-tag ${cls}`; return el; };
       this.labelEls = { from: mk("is-from"), to: mk("is-to"), plane: mk("is-plane") };
     }
-    const hm = (ms) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const hm = (ms) => HHMM.format(new Date(ms));
     const remaining = f.durationMin * 60000 - flownMs(f);
     const { from, to, plane } = this.labelEls;
     const set = (el, html) => { if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
