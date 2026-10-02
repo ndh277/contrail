@@ -69,7 +69,55 @@ function tone(t, { type = "sine", freq = 440, to, dur = 0.2, peak = 0.2, attack 
   return { o, g };
 }
 
+/** Turbine spool that follows the throttle lever while it is held. */
+const spool = {
+  nodes: null,
+  start(f = 0) {
+    if (!ok()) return;
+    if (this.nodes) { clearTimeout(this.nodes.kill); this.nodes.kill = 0; this.set(f); return; }
+    const t = ctx.currentTime;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.connect(master);
+    const roar = ctx.createBufferSource();
+    roar.buffer = noiseBuf; roar.loop = true;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.Q.value = 0.7;
+    const rg = ctx.createGain(); rg.gain.value = 1;
+    roar.connect(lp).connect(rg).connect(out);
+    const whine = ctx.createOscillator();
+    whine.type = "sawtooth";
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.Q.value = 9;
+    const wg = ctx.createGain(); wg.gain.value = 0.05;
+    whine.connect(bp).connect(wg).connect(out);
+    roar.start(t); whine.start(t);
+    this.nodes = { out, lp, whine, bp, roar, kill: 0 };
+    this.set(f, 0.02);
+  },
+  set(f, tc = 0.12) {
+    const n = this.nodes;
+    if (!n || n.kill) return;
+    const t = ctx.currentTime;
+    f = Math.max(0, Math.min(1, f));
+    n.lp.frequency.setTargetAtTime(180 + 1500 * f * f, t, tc);
+    n.whine.frequency.setTargetAtTime(240 + 1100 * f, t, tc);
+    n.bp.frequency.setTargetAtTime(480 + 2200 * f, t, tc);
+    n.out.gain.setTargetAtTime(0.05 + 0.13 * f, t, tc);
+  },
+  stop() {
+    const n = this.nodes;
+    if (!n || n.kill) return;
+    n.out.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.25);
+    n.kill = setTimeout(() => {
+      n.roar.stop(); n.whine.stop(); n.out.disconnect();
+      if (this.nodes === n) this.nodes = null;
+    }, 1600);
+  },
+};
+
 export const sfx = {
+  spool,
   /** dial detent: a tiny dry tick */
   /** dial detent: a ratchet pawl dropping into a gear tooth (heavier on the quarter hours) */
   tick(major = false) {

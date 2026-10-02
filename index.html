@@ -16,6 +16,15 @@
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
+  <!-- shared leather grain for luggage tags and the passport cover -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <filter id="leather" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" seed="11" result="n"/>
+      <feDiffuseLighting in="n" surfaceScale="1.4" lighting-color="#fff" result="lit"><feDistantLight azimuth="225" elevation="52"/></feDiffuseLighting>
+      <feComposite in="SourceGraphic" in2="lit" operator="arithmetic" k1="1.12" k2="0.08" k3="0" k4="0" result="tex"/>
+      <feComposite in="tex" in2="SourceAlpha" operator="in"/>
+    </filter>
+  </svg>
   <div id="app" class="app" data-screen="boot">
     <header class="topbar">
       <div class="brand" aria-label="Contrail">
@@ -163,7 +172,7 @@
           <div class="pass-paper" id="pass-paper"></div>
         </div>
       </div>
-      <p class="tear-hint" id="tear-hint"><span class="tear-arrow" aria-hidden="true"></span>Pull the stub down to tear it off and depart</p>
+      <p class="tear-hint" id="tear-hint"><span class="tear-arrow" aria-hidden="true"></span>Swipe the stub left to tear it off and depart</p>
     </section>
 
     <!-- ===== in flight (M1: take-off + minimal HUD) ===== -->
@@ -344,6 +353,14 @@
           <button data-setting="routeScale" data-value="1">1×</button>
           <button data-setting="routeScale" data-value="2">2×</button>
           <button data-setting="routeScale" data-value="4">4×</button>
+        </div>
+      </section>
+
+      <section class="set-group">
+        <h3>Time dial</h3>
+        <div class="segmented" role="group" aria-label="Time dial">
+          <button data-setting="dialStyle" data-value="arc">Throttle arc</button>
+          <button data-setting="dialStyle" data-value="tape">Tape</button>
         </div>
       </section>
 

@@ -38,11 +38,11 @@ export class Departure {
     this.hubsOnly = !!settings.hubsOnly;
 
     this.dial = new TimeDial(this.$("#dial"), {
-      min: MIN_MIN, max: MAX_MIN, value: settings.lastDuration || 25,
-      onChange: (v) => this.dialChanged(v),
+      min: MIN_MIN, max: MAX_MIN, value: settings.lastDuration || 25, style: settings.dialStyle,
+      onChange: (v) => { this.dialChanged(v); if (this.dial?.arc) sfx.spool.set(this.dial.frac); },
       onDetent: (d) => { const major = d % 15 === 0; haptic(major ? "dialMajor" : "dialDetent"); sfx.tick(major); },
-      onSettle: () => this.refreshSuggestions(true),
-      onGrab: () => { this.followSince = performance.now(); if (this.selected >= 0) this.select(-1); },
+      onSettle: () => { sfx.spool.stop(); this.refreshSuggestions(true); },
+      onGrab: () => { if (this.dial?.arc) sfx.spool.start(this.dial.frac); this.followSince = performance.now(); if (this.selected >= 0) this.select(-1); },
     });
 
     this.$("#suggestions").addEventListener("click", (e) => {

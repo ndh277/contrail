@@ -6,9 +6,9 @@ import { haptic } from "../haptics.js";
 import { esc, toast } from "./common.js";
 
 export class SettingsPanel {
-  constructor({ dialog, onHome, onScale, onTheme }) {
+  constructor({ dialog, onHome, onScale, onTheme, onDial }) {
     this.dlg = dialog;
-    Object.assign(this, { onHome, onScale, onTheme });
+    Object.assign(this, { onHome, onScale, onTheme, onDial });
     const $ = (s) => dialog.querySelector(s);
     this.$ = $;
 
@@ -69,6 +69,7 @@ export class SettingsPanel {
     sfx.tap();
     if (key === "routeScale") this.onScale();
     if (key === "theme") this.onTheme();
+    if (key === "dialStyle") this.onDial?.(value);
     if (key === "quality") toast("Quality applies the next time Contrail opens.");
   }
 }

@@ -39,37 +39,48 @@ const CABIN = [
 ];
 
 /**
- * A luggage tag on its cord: cardstock body with chamfered corners, a punched
- * metal eyelet, a colour band, the purpose in large type and a tiny barcode.
- * Two stacked bodies (paper / colour) let CSS switch the selected state.
+ * A leather luggage tag: grained hide in the purpose colour with saddle stitching,
+ * a strap through a slot with a brass keeper, and a card behind a clear window
+ * carrying the purpose. The grain is the shared #leather SVG filter in index.html.
  */
-function tagSVG(name, color, id, ghost = false) {
-  const size = name.length > 8 ? 12.5 : name.length > 6 ? 14 : 16;
-  const bars = Array.from({ length: 18 }, (_, i) => {
+export function tagSVG(name, color, id, ghost = false) {
+  const size = name.length > 8 ? 10.5 : name.length > 6 ? 12.5 : 15;
+  const bars = Array.from({ length: 17 }, (_, i) => {
     const w = (hash(name + i) % 3) + 0.6;
-    return `<rect x="${22 + i * 2.6}" y="128" width="${w * 0.7}" height="9"/>`;
+    return `<rect x="${23.5 + i * 2.6}" y="119" width="${w * 0.7}" height="8"/>`;
   }).join("");
-  const body = "M22 34 H68 L82 48 V138 Q82 145 75 145 H15 Q8 145 8 138 V48 Z";
+  const body = "M18 34 H72 Q82 34 82 44 V135 Q82 145 72 145 H18 Q8 145 8 135 V44 Q8 34 18 34 Z";
+  const strap = "M40 2 Q40 0 42 0 H48 Q50 0 50 2 V47 H40 Z";
+  if (ghost) {
+    return `<svg class="lt" viewBox="0 0 90 150" aria-hidden="true">
+      <path d="${strap}" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 3"/>
+      <path d="${body}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 4"/>
+      <text class="lt-name" x="45" y="${96 + size * 0.3}" text-anchor="middle" font-size="${size}">${esc(name)}</text>
+    </svg>`;
+  }
+  const hide = `color-mix(in oklab, ${color} 64%, #2a1607)`;
+  const hideDark = `color-mix(in oklab, ${color} 45%, #1c0e04)`;
   return `<svg class="lt" viewBox="0 0 90 150" aria-hidden="true">
     <defs>
-      <linearGradient id="${id}p" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fdfbf6"/><stop offset="1" stop-color="#e7dfcf"/></linearGradient>
-      <linearGradient id="${id}c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="${color}" stop-opacity=".82"/></linearGradient>
-      <linearGradient id="${id}s" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".35"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
-      <radialGradient id="${id}g" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#ffffff"/><stop offset=".45" stop-color="#c9ced6"/><stop offset="1" stop-color="#7b828e"/></radialGradient>
-      <mask id="${id}m"><rect width="90" height="150" fill="#fff"/><circle cx="45" cy="50" r="4.2" fill="#000"/></mask>
+      <linearGradient id="${id}b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".45" stop-color="#d9a945"/><stop offset="1" stop-color="#7a5414"/></linearGradient>
+      <linearGradient id="${id}w" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset=".35" stop-color="#fff" stop-opacity=".08"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#fff" stop-opacity=".16"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <linearGradient id="${id}e" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".3" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".25"/></linearGradient>
     </defs>
-    <path class="lt-cord" d="M45 0 C41 16 37 34 40.5 50 M45 0 C49 16 53 34 49.5 50" fill="none" stroke-width="1.8" stroke-linecap="round"/>
-    <g mask="url(#${id}m)">
-      <path class="lt-paper" d="${body}" fill="${ghost ? "none" : `url(#${id}p)`}" ${ghost ? 'stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 4"' : ""}/>
-      ${ghost ? "" : `<path class="lt-band" d="M8 62 H82 V70 H8 Z" fill="${color}"/>
-      <path class="lt-color" d="${body}" fill="url(#${id}c)"/>
-      <path class="lt-sheen" d="${body}" fill="url(#${id}s)"/>`}
+    <g class="lt-hide" filter="url(#leather)">
+      <path d="${body}" style="fill:${hide}"/>
     </g>
-    <circle cx="45" cy="50" r="7" fill="url(#${id}g)"/>
-    <circle cx="45" cy="50" r="4.2" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1"/>
-    <path class="lt-cord" d="M40.5 50 Q45 55 49.5 50" fill="none" stroke-width="1.8" stroke-linecap="round"/>
-    <text class="lt-name" x="45" y="${102 + size * 0.3}" text-anchor="middle" font-size="${size}">${esc(name)}</text>
-    ${ghost ? "" : `<text class="lt-label" x="45" y="84" text-anchor="middle">PURPOSE</text><g class="lt-bars">${bars}</g>`}
+    <path d="${body}" fill="url(#${id}e)"/>
+    <path class="lt-stitch" d="M19 39.5 H71 Q76.5 39.5 76.5 45 V134 Q76.5 139.5 71 139.5 H19 Q13.5 139.5 13.5 134 V45 Q13.5 39.5 19 39.5 Z" fill="none"/>
+    <rect x="35" y="42.5" width="20" height="6" rx="3" fill="rgba(0,0,0,.55)"/>
+    <g filter="url(#leather)"><path d="${strap}" style="fill:${hideDark}"/></g>
+    <path class="lt-stitch" d="M45 3 V44" fill="none"/>
+    <rect x="37.5" y="16" width="15" height="8" rx="2" fill="none" stroke="url(#${id}b)" stroke-width="2.2"/>
+    <rect x="18.5" y="55" width="53" height="78" rx="4" fill="#f6efdf"/>
+    <text class="lt-label" x="45" y="69" text-anchor="middle">PURPOSE</text>
+    <text class="lt-name" x="45" y="${96 + size * 0.3}" text-anchor="middle" font-size="${size}">${esc(name)}</text>
+    <g class="lt-bars">${bars}</g>
+    <rect x="18.5" y="55" width="53" height="78" rx="4" fill="url(#${id}w)" stroke="rgba(0,0,0,.35)" stroke-width="1"/>
+    <g class="lt-dim"><path d="${body}"/><path d="${strap}"/></g>
   </svg>`;
 }
 

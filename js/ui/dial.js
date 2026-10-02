@@ -1,6 +1,9 @@
-// Time dial: a horizontal "altitude tape".
+// Time dial, in two styles (Settings → Dial):
+// - "arc": a throttle quadrant. A lever sweeps a half-circle scale from IDLE to 12 h;
+//   drag anywhere along the arc, slowly for single minutes, fast to cover hours.
+// - "tape": a horizontal "altitude tape" that slides under a fixed needle.
 // 5 min .. 12 h. Detent every minute up to 3 h, every 5 minutes beyond, so the
-// tape stays short enough to fling while the first three hours stay precise.
+// travel stays short enough to fling while the first three hours stay precise.
 // Internally everything moves in tape pixels; minutes are derived from that.
 import { reducedMotion } from "../spring.js";
 
@@ -20,8 +23,8 @@ export function clockLabel(m) {
 }
 
 export class TimeDial {
-  constructor(el, { min = 5, max = 720, value = 25, onChange, onDetent, onSettle, onGrab } = {}) {
-    Object.assign(this, { el, min, max, onChange, onDetent, onSettle, onGrab });
+  constructor(el, { min = 5, max = 720, value = 25, style = "arc", onChange, onDetent, onSettle, onGrab, onRelease } = {}) {
+    Object.assign(this, { el, min, max, onChange, onDetent, onSettle, onGrab, onRelease });
     this.pos = toPx(value);
     this.minPos = toPx(min);
     this.maxPos = toPx(max);
@@ -49,9 +52,26 @@ export class TimeDial {
     }, { passive: false });
 
     new ResizeObserver(() => this.resize()).observe(el);
-    this.resize();
+    this.setStyle(style);
     new MutationObserver(() => this.draw())
       .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  }
+
+  get arc() { return this.style === "arc"; }
+
+  setStyle(style) {
+    this.style = style === "tape" ? "tape" : "arc";
+    this.el.classList.toggle("is-arc", this.arc);
+    this.resize();
+  }
+
+  /** 0..1 travel of the throttle lever. */
+  get frac() { return (this.pos - this.minPos) / (this.maxPos - this.minPos); }
+
+  /** Arc geometry in element px: pivot (cx, cy) and scale radius R. */
+  geometry(w = this.el.clientWidth, h = this.el.clientHeight) {
+    const R = Math.max(60, Math.min(w / 2 - 34, h - 38));
+    return { cx: w / 2, cy: h - 16, R };
   }
 
   get value() { return Math.max(this.min, Math.min(this.max, toMin(this.pos))); }
@@ -73,6 +93,8 @@ export class TimeDial {
     this.el.setPointerCapture(e.pointerId);
     this.mode = "drag";
     this.dragX = e.clientX;
+    this.dragY = e.clientY;
+    this.dragT = performance.now();
     this.samples = [{ t: performance.now(), p: this.pos }];
     this.velocity = 0;
     this.el.classList.add("is-grabbed");
@@ -82,16 +104,30 @@ export class TimeDial {
 
   move(e) {
     if (this.mode !== "drag") return;
-    const dx = e.clientX - this.dragX;
-    this.dragX = e.clientX;
-    let next = this.pos - dx;
+    const dx = e.clientX - this.dragX, dy = e.clientY - this.dragY;
+    const now = performance.now();
+    const dt = Math.max(0.004, (now - this.dragT) / 1000);
+    this.dragX = e.clientX; this.dragY = e.clientY; this.dragT = now;
+    let delta = -dx;
+    if (this.arc) {
+      // movement along the arc (clockwise = more thrust), wherever the finger is
+      const r = this.el.getBoundingClientRect();
+      const { cx, cy, R } = this.geometry(r.width, r.height);
+      const px = e.clientX - r.left - cx, py = e.clientY - r.top - cy;
+      const dist = Math.hypot(px, py);
+      const along = (px * dy - py * dx) / Math.max(dist, R * 0.5);
+      // pointer acceleration: slow = one tape px per finger px (single minutes), fast = hours
+      const speed = Math.abs(along) / dt;
+      const k = Math.min(1, Math.max(0, (speed - 160) / 1300));
+      delta = along * (1 + 8 * k * k * (3 - 2 * k));
+    }
+    let next = this.pos + delta;
     // rubber-band past the ends
     if (next < this.minPos || next > this.maxPos) {
       const over = next < this.minPos ? this.minPos - this.pos : this.pos - this.maxPos;
-      next = this.pos - dx * 0.35 * Math.max(0, 1 - Math.max(0, over) / 90);
+      next = this.pos + delta * 0.35 * Math.max(0, 1 - Math.max(0, over) / 90);
     }
     this.pos = next;
-    const now = performance.now();
     this.samples.push({ t: now, p: this.pos });
     while (this.samples.length > 2 && now - this.samples[0].t > 90) this.samples.shift();
     this.changed(true);
@@ -100,6 +136,7 @@ export class TimeDial {
   up() {
     if (this.mode !== "drag") return;
     this.el.classList.remove("is-grabbed");
+    this.onRelease?.();
     const s = this.samples;
     const a = s[0], b = s[s.length - 1];
     const dt = (b.t - a.t) / 1000;
@@ -223,6 +260,7 @@ export class TimeDial {
   /* ---------- drawing ---------- */
 
   draw() {
+    if (this.arc) return this.drawArc();
     const ctx = this.canvas.getContext("2d");
     const { dpr } = this;
     const w = this.canvas.width / dpr, h = this.canvas.height / dpr;
@@ -301,5 +339,140 @@ export class TimeDial {
     ctx.moveTo(cx - 7, base + 10); ctx.lineTo(cx + 7, base + 10); ctx.lineTo(cx, base + 2); ctx.closePath();
     ctx.fill();
     ctx.beginPath(); ctx.arc(cx, base - 52, 3.2, 0, Math.PI * 2); ctx.fill();
+  }
+
+  /** Throttle quadrant: fixed half-circle scale, a lever pivoting from the bottom centre. */
+  drawArc() {
+    const ctx = this.canvas.getContext("2d");
+    const { dpr } = this;
+    const w = this.canvas.width / dpr, h = this.canvas.height / dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const { cx, cy, R } = this.geometry(w, h);
+    const low = css("--text-low"), mid = css("--text-mid"), hi = css("--text-hi"), accent = css("--accent");
+    const mono = css("--font-mono");
+    const span = this.maxPos - this.minPos;
+    const fOf = (m) => (toPx(m) - this.minPos) / span;
+    const ang = (f) => Math.PI + Math.max(-0.03, Math.min(1.03, f)) * Math.PI;
+    const f = this.frac;
+    const a = ang(f);
+    const grabbed = this.mode === "drag" || this.mode === "coast";
+
+    // recessed bezel
+    ctx.lineCap = "butt";
+    ctx.lineWidth = 34;
+    ctx.strokeStyle = css("--dial-track") || "rgba(0,0,0,0.25)";
+    ctx.beginPath(); ctx.arc(cx, cy, R - 12, Math.PI, 2 * Math.PI); ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = low;
+    ctx.beginPath(); ctx.arc(cx, cy, R + 5.5, Math.PI, 2 * Math.PI); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // scale: every 5 min to 3 h, every 30 min beyond; lit up to the lever
+    ctx.lineCap = "round";
+    const ticks = [];
+    for (let m = 5; m <= KNEE; m += 5) ticks.push(m);
+    for (let m = KNEE + 30; m <= this.max; m += 30) ticks.push(m);
+    for (const m of ticks) {
+      const tf = fOf(m);
+      const ta = ang(tf);
+      const major = m % 60 === 0;
+      const medium = m % 15 === 0 || m > KNEE;
+      const len = major ? 16 : medium ? 10 : 6;
+      const lit = tf <= f + 1e-6;
+      ctx.strokeStyle = lit ? accent : major ? mid : low;
+      ctx.globalAlpha = lit ? 1 : major ? 0.9 : 0.6;
+      ctx.lineWidth = major ? 2.2 : 1.4;
+      const c = Math.cos(ta), s = Math.sin(ta);
+      ctx.beginPath();
+      ctx.moveTo(cx + c * R, cy + s * R);
+      ctx.lineTo(cx + c * (R - len), cy + s * (R - len));
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.font = `500 11px ${mono}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const [m, label] of [[30, "30m"], [60, "1h"], [120, "2h"], [180, "3h"], [360, "6h"], [540, "9h"], [720, "12h"]]) {
+      const ta = ang(fOf(m));
+      const rr = R - 30;
+      ctx.fillStyle = fOf(m) <= f + 1e-6 ? hi : mid;
+      ctx.globalAlpha = Math.abs(ta - a) < 0.16 ? 0.25 : 0.95;
+      ctx.fillText(label, cx + Math.cos(ta) * rr, cy + Math.sin(ta) * rr);
+    }
+    ctx.globalAlpha = 1;
+    ctx.font = `500 9px ${mono}`;
+    ctx.fillStyle = low;
+    ctx.fillText("IDLE", cx - R + 4, cy + 9);
+    ctx.fillText("TOGA", cx + R - 4, cy + 9);
+    // where the steps widen to 5 minutes
+    const ka = ang(fOf(KNEE));
+    ctx.save();
+    ctx.translate(cx + Math.cos(ka) * (R + 13), cy + Math.sin(ka) * (R + 13));
+    ctx.rotate(ka + Math.PI / 2);
+    ctx.font = `400 8px ${mono}`;
+    ctx.fillText("5-MIN STEPS →", 30, 0);
+    ctx.restore();
+
+    // thrust band
+    const band = R - 46;
+    ctx.lineCap = "round";
+    ctx.lineWidth = 5;
+    ctx.globalAlpha = 0.18;
+    ctx.strokeStyle = mid;
+    ctx.beginPath(); ctx.arc(cx, cy, band, Math.PI, 2 * Math.PI); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (f > 0.001) {
+      const g = ctx.createConicGradient ? ctx.createConicGradient(Math.PI, cx, cy) : null;
+      if (g) {
+        g.addColorStop(0, "rgba(0,0,0,0)");
+        g.addColorStop(Math.max(0.001, f * 0.5 * 0.999), accent);
+        g.addColorStop(1, accent);
+      }
+      ctx.strokeStyle = g || accent;
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = grabbed ? 16 : 9;
+      ctx.beginPath(); ctx.arc(cx, cy, band, Math.PI, a); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // outer pointer at the lever
+    const c = Math.cos(a), s = Math.sin(a);
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.moveTo(cx + c * (R + 3), cy + s * (R + 3));
+    ctx.lineTo(cx + Math.cos(a - 0.035) * (R + 14), cy + Math.sin(a - 0.035) * (R + 14));
+    ctx.lineTo(cx + Math.cos(a + 0.035) * (R + 14), cy + Math.sin(a + 0.035) * (R + 14));
+    ctx.closePath(); ctx.fill();
+
+    // lever arm
+    const armEnd = R - 58;
+    ctx.strokeStyle = mid;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + c * armEnd, cy + s * armEnd); ctx.stroke();
+    // handle: a T-bar grip across the arm
+    ctx.save();
+    ctx.translate(cx + c * armEnd, cy + s * armEnd);
+    ctx.rotate(a + Math.PI / 2);
+    const hw = 30, hh = 13;
+    const hg = ctx.createLinearGradient(0, -hh / 2, 0, hh / 2);
+    hg.addColorStop(0, hi); hg.addColorStop(0.5, mid); hg.addColorStop(1, low);
+    ctx.shadowColor = "rgba(0,0,0,0.45)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
+    ctx.fillStyle = hg;
+    ctx.beginPath(); ctx.roundRect(-hw / 2, -hh / 2, hw, hh, 6); ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.fillStyle = accent;
+    ctx.shadowColor = accent; ctx.shadowBlur = grabbed ? 10 : 4;
+    ctx.beginPath(); ctx.roundRect(-hw / 2 + 5, -1.5, hw - 10, 3, 1.5); ctx.fill();
+    ctx.restore();
+    ctx.shadowBlur = 0;
+    // pivot hub
+    const hub = ctx.createRadialGradient(cx - 3, cy - 3, 1, cx, cy, 11);
+    hub.addColorStop(0, hi); hub.addColorStop(1, low);
+    ctx.fillStyle = hub;
+    ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
   }
 }

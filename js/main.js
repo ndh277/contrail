@@ -161,6 +161,7 @@ async function boot() {
     onHome: (a) => { $("home-code").textContent = a.iata; departure.setHome(a); },
     onScale: () => departure.rescale(),
     onTheme: applyTheme,
+    onDial: (style) => { departure.dial.setStyle(style); sheet.snap(sheet.index, false); },
   });
   $("settings-btn").addEventListener("click", () => { sfx.tap(); panel.open(); });
   $("home-chip").addEventListener("click", () => {

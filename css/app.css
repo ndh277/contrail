@@ -189,6 +189,7 @@ h1, h2, h3, p { margin: 0; }
   mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
 }
 .dial.is-grabbed { cursor: grabbing; }
+.dial.is-arc { height: 184px; margin-top: 2px; -webkit-mask-image: none; mask-image: none; }
 .dial canvas { display: block; }
 
 .dest-card {
@@ -302,15 +303,12 @@ h1, h2, h3, p { margin: 0; }
   color: var(--text-low);
 }
 .luggage-tag .lt { width: 100%; height: 100%; display: block; overflow: visible; }
-.lt-cord { stroke: #c9b48d; }
-.lt-color, .lt-sheen { opacity: 0; transition: opacity 0.35s var(--ease-ios); }
-.luggage-tag.is-on .lt-color { opacity: 1; }
-.luggage-tag.is-on .lt-sheen { opacity: 1; }
-.luggage-tag.is-on .lt-band { opacity: 0; }
+.lt-stitch { stroke: rgba(255, 238, 205, 0.62); stroke-width: 1.1; stroke-dasharray: 3 2.4; stroke-linecap: round; }
+.lt-dim { fill: rgba(8, 5, 2, 0.34); transition: opacity 0.35s var(--ease-ios); }
+.luggage-tag.is-on .lt-dim, .pass-luggage .lt-dim { opacity: 0; }
 .lt-name { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.04em; fill: #241d14; }
-.lt-label { font-family: var(--font-mono); font-size: 6.5px; letter-spacing: 0.22em; fill: #8a7d68; }
+.lt-label { font-family: var(--font-mono); font-size: 6px; letter-spacing: 0.22em; fill: #8a7d68; }
 .lt-bars { fill: #3a3127; opacity: 0.75; }
-.luggage-tag.is-on .lt-label { fill: rgba(30, 20, 8, 0.6); }
 .luggage-tag.is-on { filter: drop-shadow(0 14px 18px color-mix(in srgb, var(--tag) 45%, transparent)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25)); }
 .tag-add { filter: none; }
 .tag-add .lt-name { fill: var(--text-mid); font-family: var(--font-body); font-weight: 600; letter-spacing: 0; }
@@ -451,8 +449,9 @@ h1, h2, h3, p { margin: 0; }
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .28 0 0 0 0 .18 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   color: var(--ink);
   filter: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.42)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.2));
+  --fibers: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.02 .9' numOctaves='2' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .36 0 0 0 0 .22 0 0 -0.8 0 .4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
 }
-.pass-main, .pass-stub { background: var(--grain), linear-gradient(180deg, var(--paper-50), var(--paper-100)); }
+.pass-main, .pass-stub { background: var(--grain), var(--fibers), linear-gradient(180deg, var(--paper-50), var(--paper-100)); }
 .pass-main {
   position: relative; overflow: hidden;
   padding: 16px 18px 16px 24px;
@@ -489,10 +488,10 @@ h1, h2, h3, p { margin: 0; }
 .perforation { position: relative; height: 0; }
 .perforation .rip {
   position: absolute; left: 11px; right: 11px; top: -1px; height: 3px; z-index: 2;
-  transform: scaleX(0); transform-origin: left center;
+  transform: scaleX(0); transform-origin: right center;
   background: repeating-linear-gradient(90deg, var(--ink-500) 0 5px, transparent 5px 7px);
-  -webkit-mask: linear-gradient(90deg, #000 85%, transparent);
-  mask: linear-gradient(90deg, #000 85%, transparent);
+  -webkit-mask: linear-gradient(270deg, #000 85%, transparent);
+  mask: linear-gradient(270deg, #000 85%, transparent);
   opacity: 0.8;
 }
 .pass-stub {
@@ -504,11 +503,27 @@ h1, h2, h3, p { margin: 0; }
                 radial-gradient(circle 11px at 100% 0, #0000 98%, #000) right / 51% 100% no-repeat;
   mask: radial-gradient(circle 11px at 0 0, #0000 98%, #000) left / 51% 100% no-repeat,
         radial-gradient(circle 11px at 100% 0, #0000 98%, #000) right / 51% 100% no-repeat;
-  transform-origin: 100% 0;
+  transform-origin: 0 0;
   touch-action: none; user-select: none; cursor: grab;
   will-change: transform;
 }
 .pass-stub::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 7px; background: var(--tag); opacity: 0.9; }
+.stub-wrap { position: relative; transform-origin: 0 0; will-change: transform; }
+.stub-wrap:has(.is-free) { z-index: 5; }
+.stub-eyelet {
+  position: absolute; left: 22px; bottom: 10px; width: 11px; height: 11px; border-radius: 50%;
+  background: radial-gradient(circle, #1b1309 0 2.4px, transparent 2.6px), radial-gradient(circle at 35% 30%, #fff3c4, #d9a945 45%, #7a5414);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+}
+/* the leather tag, strapped through the eyelet, hangs below the stub */
+.pass-luggage {
+  position: absolute; left: calc(27.5px - 37px); top: calc(100% - 15px); width: 74px; height: 123px;
+  transform-origin: 50% 0; transform: rotate(var(--lug, 0deg));
+  filter: drop-shadow(0 10px 10px rgba(0, 0, 0, 0.35));
+  opacity: 0; pointer-events: none;
+}
+.pass-luggage.is-on { opacity: 1; transition: opacity 0.25s; }
+.pass-luggage .lt { width: 100%; height: 100%; display: block; overflow: visible; }
 .pass-stub.is-held { cursor: grabbing; }
 .pass-stub.is-free {
   border-top: 0;
@@ -523,16 +538,16 @@ h1, h2, h3, p { margin: 0; }
 .stub-meta { display: block; font-family: var(--font-mono); font-size: 0.64rem; color: var(--ink-500); letter-spacing: 0.06em; white-space: nowrap; }
 .barcode { width: 104px; height: 40px; color: var(--ink-900); flex: none; }
 .stub-pull { display: block; margin-top: 8px; text-align: center; font-family: var(--font-mono); font-size: 0.56rem; letter-spacing: 0.3em; text-transform: uppercase; color: var(--ink-500); opacity: 0.8; }
-.stub-pull::before, .stub-pull::after { content: "↓"; margin: 0 8px; color: var(--amber-500); }
+.stub-pull::before, .stub-pull::after { content: "←"; margin: 0 8px; color: var(--amber-500); }
 
 .tear-hint {
   display: flex; align-items: center; gap: 10px;
-  margin-top: 4px; font-size: var(--fs-sm); color: var(--text-mid);
+  margin-top: 4px; padding-left: 96px; min-height: 64px; font-size: var(--fs-sm); color: var(--text-mid);
   opacity: 0; transform: translateY(6px);
   transition: opacity var(--t-med), transform var(--t-med) var(--ease-out);
 }
 .tear-hint.is-on { opacity: 1; transform: none; }
-.tear-arrow { width: 14px; height: 22px; position: relative; }
+.tear-arrow { width: 14px; height: 22px; position: relative; transform: rotate(90deg); }
 .tear-arrow::before {
   content: ""; position: absolute; left: 6px; top: 0; width: 2px; height: 14px; background: var(--accent); border-radius: 1px;
   animation: nudge 1.6s var(--ease-in-out) infinite;
@@ -1157,7 +1172,7 @@ input[type="search"], input[type="text"] {
 /* desktop: the stub lifts at the corner when the mouse finds it — "this tears" */
 @media (hover: hover) and (pointer: fine) {
   .pass-stub { transition: transform 0.35s var(--ease-ios); }
-  .pass-stub:not(.is-held):not(.is-free):hover { transform: translateY(3px) rotate(-0.8deg); }
+  .pass-stub:not(.is-held):not(.is-free):hover { transform: translate(-2px, 2px) rotate(0.8deg); }
   .pass-stub::after {
     content: ""; position: absolute; right: 0; bottom: 0; width: 0; height: 0;
     background: linear-gradient(135deg, rgba(0, 0, 0, 0.18) 0 50%, var(--paper-200) 50%);

@@ -15,6 +15,7 @@ const DEFAULTS = {
   lastTagId: null,
   lastDuration: 25,
   hubsOnly: false,
+  dialStyle: "arc",       // arc (throttle quadrant) | tape
 };
 
 export const TAG_COLORS = [

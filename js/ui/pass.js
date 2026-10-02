@@ -5,7 +5,7 @@ import { haptic } from "../haptics.js";
 import { sfx } from "../audio.js";
 import { Spring, reducedMotion } from "../spring.js";
 import { esc, hash, rng } from "./common.js";
-import { CLASSES } from "./checkin.js";
+import { CLASSES, tagSVG } from "./checkin.js";
 import { formatDuration } from "../geo.js";
 
 const TEAR_AT = 118;          // px of pull before the paper gives way
@@ -105,7 +105,10 @@ export class BoardingPass {
           </dl>
         </div>
         <div class="perforation" aria-hidden="true"><span class="rip"></span></div>
+        <div class="stub-wrap">
+        <div class="pass-luggage" aria-hidden="true">${tagSVG(f.tag.name, f.tag.color, "pl")}</div>
         <div class="pass-stub" id="pass-stub" role="button" tabindex="0" aria-label="Tear off the stub to depart">
+          <span class="stub-eyelet" aria-hidden="true"></span>
           <div class="stub-row">
             <div class="stub-text">
               <span class="stub-codes">${f.origin.iata}<i>→</i>${f.dest.iata}</span>
@@ -113,7 +116,8 @@ export class BoardingPass {
             </div>
             ${barcode(f.flightNo + f.seat)}
           </div>
-          <span class="stub-pull" aria-hidden="true">Pull to depart</span>
+          <span class="stub-pull" aria-hidden="true">Swipe left to depart</span>
+        </div>
         </div>
       </div>`;
     this.updateTimes();
@@ -137,7 +141,7 @@ export class BoardingPass {
     const hint = this.$("#tear-hint");
     hint.classList.remove("is-on");
     paper.classList.remove("is-printed");
-    if (reducedMotion()) { paper.classList.add("is-printed"); hint.classList.add("is-on"); return; }
+    if (reducedMotion()) { paper.classList.add("is-printed"); hint.classList.add("is-on"); this.dropLuggage(); return; }
     const steps = 12, dur = 1250;
     sfx.printer(dur / 1000, steps);
     paper.style.setProperty("--feed", "0");
@@ -152,6 +156,7 @@ export class BoardingPass {
         // the freshly printed paper sways a little before it settles
         const sway = new Spring({ stiffness: 90, damping: 5, onUpdate: (v) => paper.style.setProperty("--sway", `${v}deg`) });
         sway.impulse(14);
+        this.dropLuggage();
         setTimeout(() => hint.classList.add("is-on"), 350);
       }
     };
@@ -162,6 +167,7 @@ export class BoardingPass {
 
   bindTear() {
     const stub = this.$("#pass-stub");
+    const wrap = stub.parentElement;      // stub + its luggage tag move together
     const rip = this.root.querySelector(".perforation .rip");
     const pass = this.root.querySelector(".pass");
     let start = null, pull = 0, separated = false, samples = [], strainStep = 0;
@@ -169,14 +175,15 @@ export class BoardingPass {
     const spring = new Spring({
       stiffness: 260, damping: 15,
       onUpdate: (v) => apply(v, false),
-      onRest: (v) => { if (!v && !separated) stub.style.transform = ""; },   // hand back to CSS (hover lift)
+      onRest: (v) => { if (!v && !separated) wrap.style.transform = ""; },   // hand back to CSS (hover lift)
     });
 
-    const apply = (p, free, dx = 0) => {
-      // before the tear: heavy resistance, the stub hinges from its right edge
+    // the tear runs along the perforation from the right edge as the stub is swiped left
+    const apply = (p, free, dx = 0, dy = 0) => {
+      // before the tear: heavy resistance, the stub peels away hinged at its left end
       const shown = free ? p : rubber(p);
-      const rot = free ? dx * 0.04 + p * 0.03 : -Math.min(shown, 60) * 0.11;
-      stub.style.transform = `translate(${free ? dx : 0}px, ${shown}px) rotate(${rot}deg)`;
+      if (free) wrap.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx * -0.03 + dy * 0.02}deg)`;
+      else wrap.style.transform = `translate(${-shown * 0.5}px, ${Math.max(0, shown) * 0.22}px) rotate(${Math.min(shown, 60) * 0.1}deg)`;
       const progress = free ? 1 : Math.min(1, Math.max(0, p / TEAR_AT));
       rip.style.transform = `scaleX(${progress})`;
       pass.style.setProperty("--strain", progress.toFixed(3));
@@ -199,11 +206,14 @@ export class BoardingPass {
     const move = (e) => {
       if (!start) return;
       const dy = e.clientY - start.y, dx = e.clientX - start.x;
+      const prev = samples[samples.length - 1];
       samples.push({ t: performance.now(), x: e.clientX, y: e.clientY });
+      // the tag hangs from the stub: moving the stub swings it the other way
+      this.luggage?.impulse((e.clientX - prev.x) * 9);
       if (samples.length > 6) samples.shift();
       if (!separated) {
-        // pulling down or sideways both count, down is the natural direction
-        pull = Math.max(dy, Math.abs(dx) * 0.6, -20);
+        // swiping left tears; a downward pull helps a little
+        pull = Math.max(-dx, dy * 0.35, -20);
         apply(pull, false);
         const step = Math.floor((pull / TEAR_AT) * 6);
         if (step > strainStep && pull > 0) { strainStep = step; sfx.strain(); haptic(step >= 3 ? "tearRip" : "tearTension", { minGapMs: 90 }); }
@@ -214,10 +224,11 @@ export class BoardingPass {
           haptic("stubTear");
           pass.classList.add("is-torn");
           stub.classList.add("is-free");
-          start = { x: e.clientX, y: e.clientY - rubber(TEAR_AT) };
+          const r = rubber(TEAR_AT);
+          start = { x: e.clientX + r * 0.5, y: e.clientY - r * 0.22 };
         }
       } else {
-        apply(e.clientY - start.y, true, e.clientX - start.x);
+        apply(0, true, e.clientX - start.x, e.clientY - start.y);
       }
     };
     const up = () => {
@@ -234,8 +245,10 @@ export class BoardingPass {
       const a = samples[0], b = samples[samples.length - 1];
       const dt = Math.max(0.016, (b.t - a.t) / 1000);
       let vx = (b.x - a.x) / dt, vy = (b.y - a.y) / dt;
-      if (vy < 900) vy = 900 + Math.max(0, vy) * 0.5;
-      this.flyAway(stub, vx, vy);
+      // it leaves to the left, whatever the flick looked like
+      if (vx > -1000) vx = -1000 + Math.min(0, vx) * 0.5;
+      vy = vy * 0.5 - 150;
+      this.flyAway(wrap, vx, vy);
     };
 
     stub.addEventListener("pointerdown", down);
@@ -249,11 +262,20 @@ export class BoardingPass {
       sfx.tear(); haptic("stubTear");
       pass.classList.add("is-torn");
       stub.classList.add("is-free");
-      this.flyAway(stub, 0, 1400);
+      this.flyAway(wrap, -1500, -200);
     };
     stub.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.tearNow(); }
     });
+  }
+
+  /** The luggage tag drops onto its strap once the pass is out, and keeps swinging a while. */
+  dropLuggage() {
+    const lug = this.root.querySelector(".pass-luggage");
+    if (!lug) return;
+    this.luggage = new Spring({ stiffness: 38, damping: 2.6, onUpdate: (v) => lug.style.setProperty("--lug", `${v}deg`) });
+    lug.classList.add("is-on");
+    if (!reducedMotion()) this.luggage.impulse(-160);
   }
 
   flyAway(stub, vx, vy) {
@@ -267,6 +289,7 @@ export class BoardingPass {
       vy += 2200 * dt;
       x += vx * dt; y += vy * dt; rot += spin * dt;
       stub.style.transform = `translate(${x}px, ${y}px) rotate(${rot}deg)`;
+      this.luggage?.impulse(-vx * dt * 0.6);
       stub.style.opacity = String(Math.max(0, 1 - (t - t0) / 700));
       if (t - t0 < 700) requestAnimationFrame(step);
     };
