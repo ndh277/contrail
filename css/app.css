@@ -577,7 +577,7 @@ h1, h2, h3, p { margin: 0; }
   padding: 12px 16px 12px;
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 50%), rgba(10, 14, 26, 0.42);
-  backdrop-filter: blur(24px) saturate(170%); -webkit-backdrop-filter: blur(24px) saturate(170%);
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 16px 40px -10px rgba(0, 0, 0, 0.45);
   color: #eef1f8;
 }
@@ -592,7 +592,7 @@ h1, h2, h3, p { margin: 0; }
   margin: 0 10px calc(var(--safe-bottom) + 10px); padding: 16px 16px 10px;
   border-radius: 30px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 40%), rgba(10, 14, 26, 0.5);
-  backdrop-filter: blur(28px) saturate(175%); -webkit-backdrop-filter: blur(28px) saturate(175%);
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 24px 60px -12px rgba(0, 0, 0, 0.55);
   color: #eef1f8;
 }
@@ -750,7 +750,7 @@ input[type="search"], input[type="text"] {
 /* bezel → recess → pane: three nested rounded windows give the moulded depth */
 .window-bezel {
   position: relative;
-  width: min(64vw, 290px); max-height: 100%; aspect-ratio: 0.7;
+  width: min(76vw, 340px); max-height: 100%; aspect-ratio: 0.7;
   padding: 14px;
   border-radius: 46% / 33%;
   background:
@@ -1136,7 +1136,7 @@ input[type="search"], input[type="text"] {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 18px; border-radius: 999px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 60%), rgba(10, 14, 26, 0.5);
-  backdrop-filter: blur(24px) saturate(170%); -webkit-backdrop-filter: blur(24px) saturate(170%);
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 14px 34px rgba(0, 0, 0, 0.4);
   color: #eef1f8;
   transform: translate(-50%, 140%); opacity: 0;

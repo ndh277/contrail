@@ -289,7 +289,8 @@ export class Flight {
     const v = this.view;
     const globeEl = document.getElementById("globe");
     const pane = document.querySelector(".window-pane");
-    const live = mode === "window" && v.satellite.available;
+    // the window draws its own sky and drifting clouds (lighter and smoother than the globe)
+    const live = false;
     this.windowLive = live;
     if (live) {
       pane.prepend(globeEl);                         // the real 3D view, framed by the window
@@ -309,7 +310,8 @@ export class Flight {
     }
     this.syncRendering();
     this.layoutOffset();
-    if (mode !== "globe") this.watchImagery(mode);
+    this.syncFps();
+    if (mode === "chase") this.watchImagery(mode);
     if (mode === "window" && typeof globalThis.DeviceOrientationEvent?.requestPermission === "function") {
       DeviceOrientationEvent.requestPermission().catch(() => {});
     }
@@ -334,7 +336,11 @@ export class Flight {
     this.idle = on;
     this.app.classList.toggle("hud-idle", on);
     this.layoutOffset();
+    this.syncFps();
   }
+
+  /** The plane creeps; nobody needs 120 frames a second to watch it. */
+  syncFps() { this.view.setFps(this.idle ? 20 : 30); }
 
   /** Keep the globe centred in the space the HUD leaves free. */
   layoutOffset() {

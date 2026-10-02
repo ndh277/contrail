@@ -39,6 +39,9 @@ function registerServiceWorker() {
 function show(screen) {
   const prev = app.dataset.screen;
   const apply = () => { app.dataset.screen = screen; };
+  // calm frame rates where the globe is only a backdrop (flight sets its own)
+  const fps = { departure: 30, checkin: 10, pass: 12, logbook: 6, landing: 30 }[screen];
+  if (fps && globeView) globeView.setFps(fps);
   const morph = document.startViewTransition && prev !== "boot" && prev !== screen &&
     !matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (morph) {

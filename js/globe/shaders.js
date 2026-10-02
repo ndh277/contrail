@@ -43,13 +43,22 @@ export const NOISE = /* glsl */ `
 // Direction <-> equirectangular UV, matching three-globe's lat/lng convention.
 export const CLOUDMAP = /* glsl */ `
   uniform sampler2D cloudMap;
+  uniform float uCloudShift;   // the weather drifts east, a little faster in the storm tracks
   vec2 dirToUv(vec3 n) {
     float lat = asin(clamp(n.y, -1.0, 1.0));
     float lng = 1.5707963 - atan(n.z, n.x);
-    return vec2(fract(lng / 6.2831853 + 0.5), lat / 3.1415927 + 0.5);
+    float drift = uCloudShift * (0.75 + 0.45 * cos(lat * 2.2));
+    return vec2(fract(lng / 6.2831853 + 0.5 - drift), lat / 3.1415927 + 0.5);
   }
-  // baked density, 0.5 = cloud edge
-  float cloudDensity(vec3 n) { return texture2D(cloudMap, dirToUv(n)).r; }
+  // density, 0.5 = cloud edge. Gradients are taken across the date-line wrap so the
+  // mip level never jumps there (no seam line where u goes 1 -> 0).
+  float cloudDensity(vec3 n) {
+    vec2 uv = dirToUv(n);
+    vec2 dx = dFdx(uv), dy = dFdy(uv);
+    dx.x -= floor(dx.x + 0.5);
+    dy.x -= floor(dy.x + 0.5);
+    return textureGrad(cloudMap, uv, dx, dy).r;
+  }
   float cloudAt(vec3 n) { return smoothstep(0.5, 0.66, cloudDensity(n)); }
 `;
 
@@ -148,8 +157,8 @@ export const earthFragment = /* glsl */ `
     vec3 color = mix(nightLit, dayLit, blend);
 
     // twilight: a warm band and reddened light along the terminator
-    float band = exp(-pow((cosSun - 0.01) / 0.08, 2.0));
-    color += vec3(1.0, 0.45, 0.18) * band * 0.10;
+    float band = exp(-pow((cosSun - 0.01) / 0.12, 2.0));
+    color += vec3(1.0, 0.45, 0.18) * band * 0.05;
 
     // aerial perspective: blue haze grows toward the limb on the lit side
     float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.6);
@@ -173,19 +182,20 @@ export const cloudFragment = /* glsl */ `
     vec3 n = normalize(vWorldNormal);
     float dens = cloudDensity(n);
     if (dens < 0.38) discard;
-    float detail = (noise3(n * 160.0 + uTime * 0.02) - 0.5) * 0.16 + (noise3(n * 480.0) - 0.5) * 0.07 + (noise3(n * 1300.0) - 0.5) * 0.03;
-    float c = smoothstep(0.47, 0.66, dens + detail);
+    // the map carries the real structure; a whisper of noise keeps close-ups from going flat
+    float detail = (noise3(n * 220.0 + uTime * 0.02) - 0.5) * 0.06 + (noise3(n * 700.0) - 0.5) * 0.025;
+    float c = pow(smoothstep(0.385, 0.70, dens + detail), 0.85);
     if (c < 0.01) discard;
     // fake volume: brighter where the density falls off toward the sun, greyer in the cores
     float towardSun = cloudDensity(normalize(n + sunDirection * 0.004));
-    float vol = clamp(0.8 + (dens - towardSun) * 4.0, 0.5, 1.08);
+    float vol = clamp(0.9 + (dens - towardSun) * 1.6, 0.74, 1.04);
     vec3 viewDir = normalize(cameraPosition - vWorldPos);
     float cosSun = dot(n, sunDirection);
     // soft wrap lighting: clouds stay lit a little past the terminator, then go grey-blue
     float light = smoothstep(-0.18, 0.35, cosSun);
     vec3 lit = mix(vec3(0.05, 0.06, 0.09), vec3(1.0), light);
     float band = exp(-pow((cosSun - 0.02) / 0.1, 2.0));
-    lit = mix(lit, vec3(1.0, 0.62, 0.38), band * 0.55);
+    lit = mix(lit, vec3(1.0, 0.66, 0.45), band * 0.32);
     lit *= mix(1.0, vol, light) * (0.86 + 0.14 * (1.0 - smoothstep(0.6, 0.85, dens)));
     float edge = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
     float a = c * uOpacity * (0.92 - edge * 0.5);
@@ -212,8 +222,9 @@ export const atmosphereFragment = /* glsl */ `
   void main() {
     vec3 viewDir = normalize(cameraPosition - vWorldPos);
     vec3 n = normalize(vWorldPos - uCenter);
-    float facing = dot(-n, viewDir);                    // 0 at the outer edge, 1 toward the centre
-    float glow = pow(clamp(facing, 0.0, 1.0), 2.4) * 1.8;
+    float facing = dot(-n, viewDir);                    // 0 at the outer edge, ~0.43 at the Earth's limb
+    float x = clamp(facing / 0.434, 0.0, 1.0);          // 0 at the outer edge, 1 at the limb
+    float glow = pow(x, 5.0) * 1.1 + pow(x, 1.8) * 0.22;
     float cosSun = dot(n, sunDirection);
     float day = smoothstep(-0.35, 0.3, cosSun);
     vec3 blue = vec3(0.32, 0.56, 1.0);
@@ -233,10 +244,10 @@ export const skyVertex = /* glsl */ `
   }
 `;
 
-// Deep space: a soft Milky Way with dust lanes, faint nebula tint, and dense dim stars.
-export const skyFragment = /* glsl */ `
-  uniform float uOpacity;
-  varying vec3 vDir;
+// Deep space, baked once into an equirectangular texture: near-black navy, a faint
+// Milky Way band and a sparse scatter of dim stars. Kept quiet so the Earth leads.
+export const skyBakeFragment = /* glsl */ `
+  varying vec2 vUv;
   ${NOISE}
   float starField(vec3 d, float scale, float density) {
     vec3 p = d * scale;
@@ -248,20 +259,32 @@ export const skyFragment = /* glsl */ `
     return smoothstep(0.22, 0.0, dist) * (0.4 + 0.6 * hash3(cell + 9.1));
   }
   void main() {
-    vec3 d = normalize(vDir);
+    float lat = (vUv.y - 0.5) * 3.1415927;
+    float lng = (vUv.x - 0.5) * 6.2831853;
+    vec3 d = vec3(cos(lat) * cos(lng), sin(lat), cos(lat) * sin(lng));
     vec3 galN = normalize(vec3(0.25, 0.86, 0.45));    // tilted galactic plane
     float g = dot(d, galN);
-    float bandW = exp(-g * g * 26.0);
+    float bandW = exp(-g * g * 30.0);
     float core = exp(-pow(length(d - normalize(vec3(-0.6, -0.1, 0.79))), 2.0) * 4.0);
-    float clouds = fbm3(d * 5.0) * 0.6 + fbm3(d * 13.0) * 0.4;
-    float dust = smoothstep(0.45, 0.75, fbm3(d * 9.0 + 3.0)) * exp(-g * g * 160.0);
-    float milky = bandW * (0.25 + 0.75 * clouds) * (0.6 + 0.9 * core) * (1.0 - dust * 0.85);
-    vec3 col = vec3(0.004, 0.006, 0.014);
-    col += milky * mix(vec3(0.42, 0.48, 0.66), vec3(0.95, 0.82, 0.62), core) * 0.22;
-    col += vec3(0.2, 0.1, 0.3) * smoothstep(0.55, 0.9, fbm3(d * 3.0 + 11.0)) * 0.035;
-    float s = starField(d, 220.0, 0.06 + bandW * 0.12) * 0.55 + starField(d, 90.0, 0.03) * 0.8;
+    float clouds = fbm3(d * 4.0) * 0.7 + fbm3(d * 11.0) * 0.3;
+    float dust = smoothstep(0.5, 0.75, fbm3(d * 8.0 + 3.0)) * exp(-g * g * 160.0);
+    float milky = bandW * (0.3 + 0.7 * clouds) * (0.5 + 0.8 * core) * (1.0 - dust * 0.7);
+    vec3 col = vec3(0.006, 0.009, 0.020);
+    col += milky * mix(vec3(0.40, 0.46, 0.62), vec3(0.85, 0.76, 0.62), core) * 0.085;
+    float s = starField(d, 160.0, 0.025 + bandW * 0.05) * 0.35;
     col += vec3(0.85, 0.9, 1.0) * s;
-    gl_FragColor = vec4(col * uOpacity, 1.0);
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+export const skyFragment = /* glsl */ `
+  uniform float uOpacity;
+  uniform sampler2D skyMap;
+  varying vec3 vDir;
+  void main() {
+    vec3 d = normalize(vDir);
+    vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5, asin(clamp(d.y, -1.0, 1.0)) / 3.1415927 + 0.5);
+    gl_FragColor = vec4(texture2D(skyMap, uv).rgb * uOpacity, 1.0);
   }
 `;
 
@@ -282,14 +305,14 @@ export const deckFragment = /* glsl */ `
     vec3 n = normalize(vWorldNormal);
     float big = cloudAt(n);
     vec3 p = n * 620.0 + vec3(uTime * 0.05, 0.0, uTime * 0.03);
-    float detail = fbm3(p) * 0.8 + fbm3(p * 3.1) * 0.2;
+    float detail = fbm3(p) * 0.85 + noise3(p * 3.1) * 0.15;
     float d = detail - mix(0.6, 0.36, big);
     float c = smoothstep(0.0, 0.16, d);
     float fade = 1.0 - smoothstep(uRadius * 0.6, uRadius, distance(vWorldPos, uCenter));
     c *= fade;
     if (c < 0.01) discard;
-    float d2 = fbm3(p + sunDirection * 1.6);
-    float self = clamp(0.62 + (detail - d2) * 2.4, 0.3, 1.0);
+    float d2 = noise3(p + sunDirection * 1.6);
+    float self = clamp(0.62 + (detail - d2 * 0.9) * 2.2, 0.3, 1.0);
     float cosSun = dot(n, sunDirection);
     float light = smoothstep(-0.12, 0.3, cosSun);
     vec3 col = mix(vec3(0.05, 0.06, 0.09), vec3(1.0, 0.99, 0.97) * self + vec3(0.12, 0.14, 0.2) * (1.0 - self), light);

@@ -176,3 +176,9 @@
     --t-slow: 1ms;
   }
 }
+
+/* touch devices: a lighter frosted glass. The blur is recomputed whenever the globe
+   under it redraws, so a smaller radius is a real saving on phones and tablets. */
+@media (pointer: coarse) {
+  :root { --glass-blur: blur(16px) saturate(165%); }
+}

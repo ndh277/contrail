@@ -6,7 +6,7 @@
 import * as THREE from "../vendor/three.core-0.185.1.min.js";
 import { subsolarPoint, interpolateGC, haversineKm, EARTH_RADIUS_KM } from "./geo.js";
 import { QUALITY, qualityTier } from "./settings.js";
-import { bakeVertex, bakeFragment, earthVertex, earthFragment, cloudVertex, cloudFragment, atmosphereVertex, atmosphereFragment, skyVertex, skyFragment, deckFragment, airSkyFragment } from "./globe/shaders.js";
+import { bakeVertex, bakeFragment, skyBakeFragment, earthVertex, earthFragment, cloudVertex, cloudFragment, atmosphereVertex, atmosphereFragment, skyVertex, skyFragment, deckFragment, airSkyFragment } from "./globe/shaders.js";
 import { look, sunElevation } from "./globe/skylook.js";
 
 const REAL_CRUISE = 11 / 6371;   // 11 km cruise altitude, in globe radii
@@ -198,7 +198,7 @@ const starsVertex = /* glsl */ `
   uniform float uPx;
   varying float vTw;
   void main() {
-    vTw = 0.65 + 0.35 * sin(uTime * (0.6 + aPhase) + aPhase * 40.0);
+    vTw = 0.8 + 0.2 * sin(uTime * (0.3 + aPhase * 0.5) + aPhase * 40.0);
     gl_PointSize = aSize * uPx;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
@@ -327,6 +327,8 @@ export class GlobeView {
     });
     const octaves = { high: 5, medium: 4, low: 3 }[this.tier];
     this.time = { value: 0 };
+    this.cloudShift = { value: 0 };
+    this.throttleRendering();
     const sunDirection = { value: new THREE.Vector3(1, 0, 0) };
     this.material = new THREE.ShaderMaterial({
       uniforms: {
@@ -339,6 +341,7 @@ export class GlobeView {
         uTime: this.time,
         uCloudShadow: { value: 0.7 },
         cloudMap: { value: null },
+        uCloudShift: this.cloudShift,
       },
       defines: { OCTAVES: Math.max(3, octaves - 1) },
       vertexShader: earthVertex,
@@ -358,7 +361,7 @@ export class GlobeView {
     this.clouds = new THREE.Mesh(
       new THREE.SphereGeometry(this.R * 1.0065, 160, 80),
       new THREE.ShaderMaterial({
-        uniforms: { sunDirection, uTime: this.time, uOpacity: { value: 0.95 }, cloudMap: { value: null } },
+        uniforms: { sunDirection, uTime: this.time, uOpacity: { value: 0.95 }, cloudMap: { value: null }, uCloudShift: this.cloudShift },
         defines: { OCTAVES: octaves },
         vertexShader: cloudVertex, fragmentShader: cloudFragment,
         transparent: true, depthWrite: false,
@@ -381,8 +384,7 @@ export class GlobeView {
     this.sky = new THREE.Mesh(
       new THREE.SphereGeometry(50, 48, 24),
       new THREE.ShaderMaterial({
-        uniforms: { uOpacity: { value: 1 } },
-        defines: { OCTAVES: 4 },
+        uniforms: { uOpacity: { value: 1 }, skyMap: { value: this.bakeSky() } },
         vertexShader: skyVertex, fragmentShader: skyFragment,
         side: THREE.BackSide, depthWrite: false, depthTest: false,
       }),
@@ -451,8 +453,58 @@ export class GlobeView {
     })));
     this.bakeStrip = this.bakeScene.children[0].material.uniforms.uStrip;
     this.cloudFrame = 0;
-    this.bakeClouds(0);                      // the first one in a single pass
+    // a different sky every day, fixed within the day
+    this.bakeClouds((Date.now() / 86400000) % 997 * 23.0);
   }
+
+  /** Bake the star field once; per frame the sky is a single texture lookup. */
+  bakeSky() {
+    const w = this.tier === "low" ? 2048 : 4096;
+    const rt = new THREE.WebGLRenderTarget(w, w / 2, { depthBuffer: false, stencilBuffer: false });
+    rt.texture.wrapS = THREE.RepeatWrapping;
+    const scene = new THREE.Scene();
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+      uniforms: { uStrip: { value: new THREE.Vector2(0, 1) } },
+      defines: { OCTAVES: 4 },
+      vertexShader: bakeVertex, fragmentShader: skyBakeFragment, depthTest: false, depthWrite: false,
+    })));
+    const r = this.renderer, prev = r.getRenderTarget();
+    r.setRenderTarget(rt);
+    r.render(scene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1));
+    r.setRenderTarget(prev);
+    scene.children[0].geometry.dispose(); scene.children[0].material.dispose();
+    return rt.texture;
+  }
+
+  /**
+   * Frame budget. globe.gl redraws on every display refresh (120 Hz on the S24),
+   * which is what heats phones. The canvas keeps its last frame when a draw is
+   * skipped, so we draw at full rate only while something is being touched or the
+   * camera is moving, and at a calm rate otherwise (set per screen via setFps).
+   */
+  throttleRendering() {
+    const r = this.renderer;
+    const draw = r.render.bind(r);
+    this.fpsCap = 30;
+    this.burstUntil = 0;
+    this.lastDraw = 0;
+    r.render = (scene, camera) => {
+      if (r.getRenderTarget() !== null) return draw(scene, camera);     // bakes, offscreen work
+      const now = performance.now();
+      const cap = now < this.burstUntil ? 60 : this.fpsCap;
+      if (cap <= 0 || now - this.lastDraw < 1000 / cap - 3) return;
+      this.lastDraw = now;
+      draw(scene, camera);
+    };
+    const wake = () => this.wake(1200);
+    for (const ev of ["pointerdown", "pointermove", "wheel", "keydown"]) addEventListener(ev, (e) => { if (ev !== "pointermove" || e.buttons) wake(); }, { passive: true, capture: true });
+  }
+
+  /** Draw at full rate for a while (input, camera moves, screen changes). */
+  wake(ms = 1200) { this.burstUntil = Math.max(this.burstUntil, performance.now() + ms); }
+
+  /** Calm frame rate for the current context; 0 stops drawing (e.g. behind the shade). */
+  setFps(n) { this.fpsCap = n; this.wake(600); }
 
   /**
    * Render the cloud field into the back buffer, then swap it in.
@@ -506,6 +558,13 @@ export class GlobeView {
     this.material.uniforms.nightTexture.value = night;
     this.material.uniforms.reliefTexture.value = relief;
     this.el.classList.add("is-ready");
+    // real cloud cover (NASA Visible Earth); the procedural bake stays as the fallback
+    load(`assets/textures/clouds-${res}.jpg`).then((clouds) => {
+      clouds.wrapS = THREE.RepeatWrapping;
+      clouds.anisotropy = aniso;
+      this.cloudTex = clouds;
+      for (const m of [this.material, this.clouds.material, this.deck?.material]) if (m) m.uniforms.cloudMap.value = clouds;
+    }).catch(() => {});
   }
 
   /** Vector (globe units) for a lat/lng at an altitude given in globe radii. */
@@ -546,6 +605,7 @@ export class GlobeView {
     const step = (t) => {
       const p = Math.min(1, (t - t0) / ease);
       const e = 1 - Math.pow(1 - p, 4);
+      this.wake(100);
       this.centerOffset = { dx: from.dx + (dx - from.dx) * e, dy: from.dy + (dy - from.dy) * e };
       this.applyCenterOffset();
       if (p < 1) this.offsetRaf = requestAnimationFrame(step);
@@ -563,7 +623,7 @@ export class GlobeView {
     cam.updateProjectionMatrix();
   }
 
-  pointOfView(pov, ms = 0) { return this.globe.pointOfView(pov, ms); }
+  pointOfView(pov, ms = 0) { if (ms) this.wake(ms + 300); return this.globe.pointOfView(pov, ms); }
 
   onFrame(fn) { this.frameHooks.add(fn); return () => this.frameHooks.delete(fn); }
 
@@ -573,9 +633,8 @@ export class GlobeView {
     if (this.radar) this.radar.material.uniforms.uSweep.value = (t / 1000) * 1.7;
     if (this.stars) this.stars.material.uniforms.uTime.value = t / 1000;
     this.time.value = (t / 1000) * 0.6;
-    // the cloud field drifts slowly; re-bake every few seconds
-    if (this.bakeJob) this.stepBake();
-    else if (this.cloudRT && t - this.lastBake > 5000) this.bakeClouds(this.time.value, 16);
+    // the weather drifts continuously (the field itself is baked once)
+    this.cloudShift.value += dt * 0.00045;
     this.sky.position.copy(this.camera.position);
     if (this.airSky) this.airSky.position.copy(this.camera.position);
     if (this.navLights) this.navLights.material.uniforms.uTime.value = t / 1000;
@@ -615,6 +674,7 @@ export class GlobeView {
   stepCamera(dt) {
     const target = this.camTarget;
     if (!target || this.userInteracting) return;
+    if (!target.keep) this.wake(200);
     const cur = this.globe.pointOfView();
     const k = 1 - Math.exp(-target.rate * dt);
     let dLng = ((target.lng - cur.lng + 540) % 360) - 180;
@@ -940,13 +1000,13 @@ export class GlobeView {
   /* ---------------- stars + pings ---------------- */
 
   addStars() {
-    const N = this.tier === "low" ? 900 : 1800;
+    const N = this.tier === "low" ? 450 : 750;
     const pos = new Float32Array(N * 3), size = new Float32Array(N), phase = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, r = 4200;
       const q = Math.sqrt(1 - u * u);
       pos.set([r * q * Math.cos(th), r * u, r * q * Math.sin(th)], i * 3);
-      size[i] = Math.random() < 0.06 ? 2.6 + Math.random() * 1.4 : 0.9 + Math.random() * 1.3;
+      size[i] = Math.random() < 0.05 ? 2.2 + Math.random() * 0.9 : 0.8 + Math.random() * 0.9;
       phase[i] = Math.random();
     }
     const geo = new THREE.BufferGeometry();
@@ -1110,10 +1170,10 @@ export class GlobeView {
     this.deck = new THREE.Mesh(geo, new THREE.ShaderMaterial({
       uniforms: {
         sunDirection, uTime: this.time, uCenter: { value: new THREE.Vector3() }, uRadius: { value: this.R * capAngle },
-        cloudMap: { value: this.cloudRT[(this.cloudFrame + 1) % 2].texture },
+        cloudMap: { value: this.cloudTex || this.cloudRT[(this.cloudFrame + 1) % 2].texture }, uCloudShift: this.cloudShift,
         uHaze: { value: new THREE.Color("#b9cde6") }, uHazeDist: { value: 4 },
       },
-      defines: { OCTAVES: this.tier === "low" ? 4 : 5 },
+      defines: { OCTAVES: this.tier === "low" ? 3 : 4 },
       vertexShader: cloudVertex, fragmentShader: deckFragment,
       transparent: true, depthWrite: false, side: THREE.DoubleSide,
     }));
