@@ -70,27 +70,33 @@ h1, h2, h3, p { margin: 0; }
   position: relative;
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "top" "globe" "sheet";
-  background:
-    radial-gradient(120% 70% at 50% 0%, var(--sky-glow), transparent 70%),
-    linear-gradient(180deg, var(--sky-top), var(--sky-bottom));
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  background: #02030a;
   overflow: hidden;
 }
+/* everything stacks in one cell over a full-bleed globe, iOS-Maps style */
+.app > * { grid-area: 1 / 1; min-width: 0; }
 
 /* ---------- top bar ---------- */
 .topbar {
-  grid-area: top;
+  align-self: start;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--gap-3);
-  padding: calc(var(--safe-top) + 8px) var(--gutter) 4px;
+  padding: calc(var(--safe-top) + 10px) 12px 0;
   z-index: 6;
-  transition: opacity var(--t-med), transform var(--t-med) var(--ease-out);
+  pointer-events: none;
+  transition: opacity 0.4s, transform 0.6s var(--ease-ios);
 }
-.brand { display: flex; align-items: center; gap: 10px; }
+.topbar > * { pointer-events: auto; }
+.brand {
+  display: flex; align-items: center; gap: 9px;
+  min-height: var(--tap); padding: 0 16px 0 8px; border-radius: var(--r-pill);
+  background: var(--glass-sheen), var(--glass);
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+}
 .brand img { border-radius: 8px; }
 .brand-word { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.22em; font-size: 1.05rem; }
 .topbar-actions { display: flex; gap: var(--gap-2); align-items: center; }
@@ -106,7 +112,7 @@ h1, h2, h3, p { margin: 0; }
 .home-chip .code { font-family: var(--font-display); font-weight: 800; font-size: 1.2rem; letter-spacing: 0.08em; color: var(--accent); }
 
 /* ---------- globe ---------- */
-.globe-wrap { grid-area: globe; position: relative; min-height: 0; }
+.globe-wrap { position: relative; min-height: 0; }
 .globe { position: absolute; inset: 0; opacity: 0; transition: opacity var(--t-slow) var(--ease-out); touch-action: none; }
 .globe.is-ready { opacity: 1; }
 .globe-loading { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; transition: opacity var(--t-med); }
@@ -138,7 +144,7 @@ h1, h2, h3, p { margin: 0; }
 
 /* ================= departure sheet ================= */
 .sheet {
-  grid-area: sheet;
+  align-self: end;
   position: relative;
   z-index: 4;
   background: var(--glass-sheen), var(--glass-strong);
@@ -246,14 +252,18 @@ h1, h2, h3, p { margin: 0; }
 
 /* ================= full screens (check-in, pass) ================= */
 .screen {
-  grid-row: 1 / -1; grid-column: 1 / -1;
+  align-self: stretch;
   position: relative; z-index: 8;
   display: flex; flex-direction: column;
   min-height: 0;
-  padding: calc(var(--safe-top) + 8px) var(--gutter) 0;
-  background: var(--bg);
-  overflow-y: auto; overscroll-behavior: contain;
-  visibility: hidden; opacity: 0; transform: translateY(36px) scale(0.985);
+  margin-top: calc(var(--safe-top) + 10px);
+  padding: 14px var(--gutter) 0;
+  border-radius: 30px 30px 0 0;
+  background: var(--glass-sheen), var(--sheet-bg);
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 -20px 60px -20px rgba(0, 0, 0, 0.5);
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
+  visibility: hidden; opacity: 0; transform: translateY(60px);
   transition: opacity 0.35s var(--ease-ios), transform 0.6s var(--ease-ios), visibility 0s linear 0.6s;
 }
 .app[data-screen="checkin"] #checkin,
@@ -274,71 +284,54 @@ h1, h2, h3, p { margin: 0; }
 .tag-rail-wrap::-webkit-scrollbar { display: none; }
 .tag-rail {
   position: relative; display: flex; gap: 10px; width: max-content; min-width: 100%;
-  padding: 0 var(--gutter) 22px;
-  background: linear-gradient(var(--line-strong), var(--line-strong)) 0 3px / 100% 2px no-repeat;
+  padding: 0 var(--gutter) 26px;
+  gap: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(0, 0, 0, 0.25)) 0 0 / 100% 4px no-repeat;
 }
 .luggage-tag {
-  flex: none; display: flex; flex-direction: column; align-items: center;
-  transform-origin: 50% 3px; transform: rotate(var(--swing, 0deg));
-  min-height: var(--tap);
+  flex: none; position: relative;
+  width: 86px; height: 148px;
+  transform-origin: 50% 0; transform: rotate(var(--swing, 0deg));
+  filter: drop-shadow(0 10px 12px rgba(0, 0, 0, 0.28)) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.18));
+  transition: filter 0.3s;
+  color: var(--text-low);
 }
-.tag-string { width: 2px; height: 18px; background: var(--text-low); border-radius: 1px; }
-.luggage-tag.is-on .tag-string { background: var(--tag); }
-.tag-body {
-  position: relative; display: flex; flex-direction: column; align-items: center;
-  min-width: 76px; padding: 18px 14px 12px;
-  background: var(--surface-raised);
-  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%, 0 14px);
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tag) 70%, transparent);
-  transition: background var(--t-med), color var(--t-med);
-}
-.tag-hole { position: absolute; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 2px color-mix(in srgb, var(--tag) 70%, transparent); }
-.tag-name { font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; }
-.luggage-tag.is-on .tag-body { background: var(--tag); color: #1a1206; box-shadow: none; }
-.tag-add { --tag: var(--text-low); }
-.tag-add .tag-body { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); color: var(--text-mid); }
-.luggage-tag.is-on .tag-hole { box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25); }
+.luggage-tag .lt { width: 100%; height: 100%; display: block; overflow: visible; }
+.lt-cord { stroke: #c9b48d; }
+.lt-color, .lt-sheen { opacity: 0; transition: opacity 0.35s var(--ease-ios); }
+.luggage-tag.is-on .lt-color { opacity: 1; }
+.luggage-tag.is-on .lt-sheen { opacity: 1; }
+.luggage-tag.is-on .lt-band { opacity: 0; }
+.lt-name { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.04em; fill: #241d14; }
+.lt-label { font-family: var(--font-mono); font-size: 6.5px; letter-spacing: 0.22em; fill: #8a7d68; }
+.lt-bars { fill: #3a3127; opacity: 0.75; }
+.luggage-tag.is-on .lt-label { fill: rgba(30, 20, 8, 0.6); }
+.luggage-tag.is-on { filter: drop-shadow(0 14px 18px color-mix(in srgb, var(--tag) 45%, transparent)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25)); }
+.tag-add { filter: none; }
+.tag-add .lt-name { fill: var(--text-mid); font-family: var(--font-body); font-weight: 600; letter-spacing: 0; }
 
 /* ---------- cabin ---------- */
 .checkin { overflow-x: hidden; }
 .cabin-block { overflow: clip; margin: 0 calc(var(--gutter) * -1) var(--gap-4); padding: 0 var(--gutter); }
 .cabin-block .block-head { margin-bottom: 4px; }
-.fuselage { position: relative; width: min(330px, 100%); margin: 0 auto; }
-.nose {
-  position: relative; height: 96px; margin: 0;
-  border: 1.5px solid var(--line-strong); border-bottom: 0;
-  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
-  background:
-    radial-gradient(40% 50% at 50% 34%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
-    linear-gradient(180deg, transparent, var(--surface) 80%);
-}
-/* cockpit windscreen */
-.nose::before {
-  content: ""; position: absolute; left: 50%; top: 26px; width: 74px; height: 16px; transform: translateX(-50%);
-  border-radius: 40px 40px 6px 6px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--globe-atmosphere) 45%, transparent), transparent);
-  border: 1px solid var(--line-strong);
-}
-.tail {
-  height: 70px; margin: 0 44px;
-  border: 1.5px solid var(--line-strong); border-top: 0;
-  border-radius: 0 0 50% 50% / 0 0 100% 100%;
-  background: linear-gradient(var(--surface), transparent);
-}
-.cabin {
-  position: relative;
-  border-left: 1.5px solid var(--line-strong); border-right: 1.5px solid var(--line-strong);
-  padding: 4px 14px;
-  background: var(--surface);
-}
-/* rows of windows down both sides */
-.cabin::before, .cabin::after {
-  content: ""; position: absolute; top: 8px; bottom: 8px; width: 3px;
-  background: repeating-linear-gradient(180deg, color-mix(in srgb, var(--globe-atmosphere) 55%, transparent) 0 9px, transparent 9px 26px);
-  border-radius: 2px;
-}
-.cabin::before { left: 4px; }
-.cabin::after { right: 4px; }
+.fuselage { position: relative; width: min(312px, 100%); margin: 0 auto; isolation: isolate; }
+.nose { height: 150px; }
+.tail { height: 200px; }
+.cabin { position: relative; padding: 4px 16px; }
+.airframe { position: absolute; top: 0; z-index: -1; overflow: visible; pointer-events: none; }
+.airframe .s0 { stop-color: var(--af-edge); }
+.airframe .s1 { stop-color: var(--af-mid); }
+.airframe .s2 { stop-color: var(--af-top); }
+.airframe .w0 { stop-color: var(--af-wing0); }
+.airframe .w1 { stop-color: var(--af-wing1); }
+.af-body { fill: url(#afSkin); stroke: var(--af-line); stroke-width: 1; filter: drop-shadow(0 20px 30px rgba(0, 0, 0, 0.28)); }
+.af-wing { fill: url(#afWing); stroke: var(--af-line); stroke-width: 1; }
+.af-engine rect { fill: var(--af-engine); stroke: var(--af-line); }
+.af-inlet { fill: rgba(0, 0, 0, 0.55); }
+.af-fin { fill: var(--accent); opacity: 0.85; }
+.af-cockpit { fill: #10151f; opacity: 0.85; }
+.af-windows rect { fill: color-mix(in srgb, var(--globe-atmosphere) 50%, #10151f); opacity: 0.7; }
 
 .cabin-zone { padding: 6px 0; border-radius: 10px; }
 .zone-first { background: radial-gradient(90% 70% at 50% 50%, color-mix(in srgb, var(--paper-100) 7%, transparent), transparent); }
@@ -361,14 +354,6 @@ h1, h2, h3, p { margin: 0; }
 
 /* wings sweep out from the cabin over the economy section */
 .wing-row { position: relative; height: 22px; margin: 2px 0 6px; }
-.wing-row::before, .wing-row::after {
-  content: ""; position: absolute; top: -40px; width: 120px; height: 90px;
-  border: 1.5px solid var(--line-strong); border-top-width: 1.5px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 60%, transparent), transparent);
-  z-index: -1;
-}
-.wing-row::before { right: calc(100% + 16px); clip-path: polygon(100% 0, 100% 45%, 0 100%, 0 78%); border-color: transparent; background: color-mix(in srgb, var(--line-strong) 60%, transparent); }
-.wing-row::after { left: calc(100% + 16px); clip-path: polygon(0 0, 0 45%, 100% 100%, 100% 78%); border-color: transparent; background: color-mix(in srgb, var(--line-strong) 60%, transparent); }
 .wing-row .exit.l { left: -18px; transform: translate(0, -50%); }
 .wing-row .exit.r { right: -18px; transform: translate(0, -50%); }
 .wing-row .exit { top: 11px; }
@@ -422,8 +407,8 @@ h1, h2, h3, p { margin: 0; }
 
 .checkin-foot {
   position: sticky; bottom: 0; z-index: 3;
-  margin: 0 calc(var(--gutter) * -1); padding: 12px var(--gutter) calc(var(--safe-bottom) + 14px);
-  background: linear-gradient(transparent, var(--bg) 22%);
+  margin: 0 calc(var(--gutter) * -1); padding: 18px var(--gutter) calc(var(--safe-bottom) + 14px);
+  background: linear-gradient(transparent, var(--sheet-fade) 26%);
 }
 .class-info { min-height: 3.6em; margin-bottom: 10px; font-size: var(--fs-sm); color: var(--text-mid); display: flex; gap: 12px; align-items: flex-start; }
 .class-hint { padding-top: 4px; }
@@ -438,8 +423,6 @@ h1, h2, h3, p { margin: 0; }
 
 /* ================= boarding pass ================= */
 .pass-screen {
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   align-items: center;
 }
 .pass-screen .screen-head { align-self: stretch; }
@@ -559,16 +542,15 @@ h1, h2, h3, p { margin: 0; }
 
 /* ================= in flight ================= */
 .flight-hud {
-  grid-row: 1 / -1; grid-column: 1 / -1; z-index: 7;
+  z-index: 7;
   display: flex; flex-direction: column; justify-content: space-between;
   pointer-events: none;
   visibility: hidden; opacity: 0;
   transition: opacity var(--t-slow) var(--ease-out) 600ms, visibility 0s linear var(--t-slow);
 }
 .app[data-screen="flight"] .flight-hud { visibility: visible; opacity: 1; transition: opacity 1.2s var(--ease-out) 1.6s, visibility 0s; }
-.app:is([data-screen="flight"], [data-screen="landing"]) .globe-wrap { grid-row: 1 / -1; grid-column: 1 / -1; }
-.app:is([data-screen="flight"], [data-screen="landing"]) .sheet { transform: translateY(110%); opacity: 0; pointer-events: none; position: absolute; left: 0; right: 0; bottom: 0; }
-.app:is([data-screen="flight"], [data-screen="landing"]) .topbar { opacity: 0; transform: translateY(-12px); pointer-events: none; }
+.app:not([data-screen="departure"]) .sheet { transform: translateY(110%); opacity: 0; pointer-events: none; }
+.app:not([data-screen="departure"]) .topbar { opacity: 0; transform: translateY(-14px); pointer-events: none; }
 .hud-top {
   align-self: flex-start;
   margin: calc(var(--safe-top) + 10px) 10px 0;
@@ -672,16 +654,22 @@ input[type="search"], input[type="text"] {
 
 /* ================= tablet landscape: globe | controls ================= */
 @media (orientation: landscape) and (min-width: 820px) {
-  .app {
-    grid-template-columns: minmax(0, 1fr) minmax(380px, 36vw);
-    grid-template-rows: auto minmax(0, 1fr);
-    grid-template-areas: "top top" "globe sheet";
+  .sheet {
+    justify-self: end; align-self: stretch;
+    width: min(420px, 40vw); max-height: none;
+    margin: calc(var(--safe-top) + 70px) 14px 14px;
+    border-radius: 30px;
+    box-shadow: var(--glass-shadow);
   }
-  .sheet { max-height: none; border-radius: var(--r-lg) 0 0 0; border-left: 1px solid var(--line-strong); }
-  .screen { grid-row: 1 / -1; grid-column: 2; border-left: 1px solid var(--line-strong); }
-  .pass-screen { background: var(--bg); }
+  .screen {
+    justify-self: end; width: min(460px, 42vw);
+    margin: calc(var(--safe-top) + 14px) 14px 14px;
+    border-radius: 30px;
+    box-shadow: var(--glass-shadow);
+  }
+  .checkin-foot { border-radius: 0 0 30px 30px; }
   .hud-bottom { width: min(560px, calc(100% - 20px)); }
-  .toast { left: 32%; }
+  .toast { left: 40%; }
 }
 
 /* ================= M2: in-flight controls ================= */
@@ -1050,3 +1038,31 @@ input[type="search"], input[type="text"] {
 .backup p { font-size: var(--fs-sm); color: var(--text-mid); margin-bottom: 10px; }
 .backup-actions { display: flex; gap: 10px; }
 .backup-actions .btn { flex: 1; }
+
+/* ================= live window: the 3D globe framed by the pane ================= */
+.window-view.is-external .sky-canvas { display: none; }
+.globe.in-window { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; opacity: 1; touch-action: none; }
+
+/* ================= map tags: origin, destination, the flight ================= */
+.map-tag .tag-card {
+  position: absolute; left: 0; bottom: 14px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 5px 10px 6px; border-radius: 12px; white-space: nowrap;
+  color: #f4f6fb;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 60%), rgba(12, 16, 28, 0.55);
+  backdrop-filter: blur(14px) saturate(170%); -webkit-backdrop-filter: blur(14px) saturate(170%);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.2), 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+.map-tag .tag-card b {
+  position: static; transform: none; padding: 0; background: none; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  font-family: var(--font-display); font-weight: 800; font-size: 0.95rem; letter-spacing: 0.08em; color: inherit;
+}
+.map-tag .tag-card span { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.04em; color: rgba(235, 240, 250, 0.72); }
+.map-tag.is-to .tag-card { box-shadow: inset 0 0 0 1px rgba(244, 177, 90, 0.75), 0 8px 24px rgba(244, 160, 70, 0.25); }
+.map-tag.is-to .tag-card b { color: var(--amber-300); }
+.map-tag.is-plane .tag-card { left: 22px; bottom: -14px; transform: none; align-items: flex-start; border-radius: 10px; }
+.map-tag.is-plane .tag-card::before { content: ""; position: absolute; left: -16px; top: 50%; width: 14px; height: 1px; background: rgba(255, 255, 255, 0.5); }
+
+.hud-credit { display: none; }
+.app:is([data-view="chase"], [data-view="window"]) .hud-credit { display: inline; }

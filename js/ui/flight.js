@@ -80,6 +80,8 @@ export class Flight {
     v.showRadar(false);
     v.setLabels([]);
     v.setRoute(f.origin, f.dest);
+    v.setEndpoints(f.origin, f.dest);
+    this.labelEls = null;
     v.updatePlane(progressOf(f), resume ? 1 : 0);
 
     const o = f.origin, d = f.dest;
@@ -157,7 +159,7 @@ export class Flight {
     v.setRouteProgress(p);
     const here = this.position(p);
 
-    if (this.mode === "globe" && t > this.followFrom && t - v.lastUserInput > 8000 && !this.landing) {
+    if (this.mode === "globe" && v.viewMode === "globe" && t > this.followFrom && t - v.lastUserInput > 8000 && !this.landing) {
       const leftKm = f.distKm * (1 - p);
       const angle = Math.min(0.9, Math.max(0.12, (leftKm / 6371) * 0.7 + 0.06));
       v.glideTo({ lat: here.lat, lng: here.lng, altitude: v.fitAltitude(angle) }, 0.8);
@@ -170,6 +172,8 @@ export class Flight {
     }
 
     if (p >= 1 && !this.landing) { this.land(); return; }
+
+    if (!this.lastLabels || t - this.lastLabels > 500) { this.lastLabels = t; this.mapLabels(here, p); }
 
     if (this.lastHud && t - this.lastHud < 200) return;
     this.lastHud = t;
@@ -198,6 +202,31 @@ export class Flight {
     if (ph.textContent !== phase) ph.textContent = phase;
   }
 
+  /** Origin, destination and the flight itself, labelled on the map. */
+  mapLabels(here, p) {
+    const f = this.f, v = this.view;
+    if (!this.labelEls) {
+      const mk = (cls) => { const el = document.createElement("div"); el.className = `globe-label map-tag ${cls}`; return el; };
+      this.labelEls = { from: mk("is-from"), to: mk("is-to"), plane: mk("is-plane") };
+    }
+    const hm = (ms) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const remaining = f.durationMin * 60000 - flownMs(f);
+    const { from, to, plane } = this.labelEls;
+    const set = (el, html) => { if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
+    set(from, `<div class="tag-card"><b>${f.origin.iata}</b><span>${f.origin.city} · Dep ${hm(f.startedAt)}</span></div>`);
+    set(to, `<div class="tag-card"><b>${f.dest.iata}</b><span>${f.dest.city} · ETA ${hm(Date.now() + remaining / WARP)}</span></div>`);
+    const fl = Math.round((this.lastAlt || 0) / 100);
+    set(plane, `<div class="tag-card"><b>${f.flightNo}</b><span>${fl ? `FL${String(fl).padStart(3, "0")}` : "Climbing"} · ${Math.round(f.speedKmh)} km/h</span></div>`);
+    // the origin tag steps aside while the plane is still on top of it
+    const items = [{ key: "to", lat: f.dest.lat, lng: f.dest.lng, el: to }];
+    if (p > (this.mode === "globe" ? 0.12 : 0.3)) items.push({ key: "from", lat: f.origin.lat, lng: f.origin.lng, el: from });
+    if (this.mode !== "window") {
+      const alt = v.routeInfo ? v.routeAltitude(p, v.routeInfo.cruise) : 0;
+      items.push({ key: "plane", lat: here.lat, lng: here.lng, alt: alt + 0.002, el: plane });
+    }
+    v.setLabels(items);
+  }
+
   caption(here, tNow) {
     let best = null, bd = Infinity;
     for (const a of airports) {
@@ -221,17 +250,72 @@ export class Flight {
 
   /* ================= views ================= */
 
-  setMode(mode) {
+  /**
+   * globe  — whole earth
+   * chase  — 3D: a camera following the plane over satellite imagery
+   * window — left window seat; the 3D globe renders the view through the pane,
+   *          or (offline / no imagery) the drawn shader sky takes over
+   */
+  setMode(mode, { quiet = false } = {}) {
     if (mode === this.mode) return;
     this.mode = mode;
-    sfx.tap();
+    if (!quiet) sfx.tap();
     this.app.dataset.view = mode;
     this.$("#view-toggle").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+    const v = this.view;
+    const globeEl = document.getElementById("globe");
+    const pane = document.querySelector(".window-pane");
+    const live = mode === "window" && v.satellite.available;
+    this.windowLive = live;
+    if (live) {
+      pane.prepend(globeEl);                         // the real 3D view, framed by the window
+      globeEl.classList.add("in-window");
+    } else if (globeEl.parentElement !== document.querySelector(".globe-wrap")) {
+      document.querySelector(".globe-wrap").prepend(globeEl);
+      globeEl.classList.remove("in-window");
+    }
+    this.windowView.setExternal(live);
     this.windowView.show(mode === "window");
+    v.setViewMode(mode === "window" ? (live ? "window" : "globe") : mode);
+    v.resize();
+    if (mode === "globe" && this.f) {
+      const here = this.position();
+      v.pointOfView({ lat: here.lat, lng: here.lng, altitude: 1.1 }, 900);
+      this.followFrom = performance.now() + 1000;
+    }
     this.syncRendering();
+    this.layoutOffset();
+    if (mode !== "globe") this.watchImagery(mode);
     if (mode === "window" && typeof globalThis.DeviceOrientationEvent?.requestPermission === "function") {
       DeviceOrientationEvent.requestPermission().catch(() => {});
     }
+  }
+
+  /** If no satellite tile arrives in a few seconds (offline), fall back gracefully. */
+  watchImagery(mode) {
+    clearTimeout(this.imageryTimer);
+    const v = this.view;
+    this.imageryTimer = setTimeout(() => {
+      if (this.mode !== mode || v.satellite.successes > 0) return;
+      v.satellite.failures = Math.max(v.satellite.failures, 7);
+      if (mode === "window") {
+        this.mode = null;
+        this.setMode("window", { quiet: true });
+      }
+      toast("Satellite imagery isn't reachable right now — showing the drawn view.", 3600);
+    }, 6000);
+  }
+
+  /** Keep the globe centred in the space the HUD leaves free. */
+  layoutOffset() {
+    const v = this.view;
+    if (this.mode === "window" && this.windowLive) { v.setCenterOffset(0, 0); return; }
+    const top = this.root.querySelector(".hud-top")?.getBoundingClientRect();
+    const bottom = this.root.querySelector(".hud-bottom")?.getBoundingClientRect();
+    if (!top || !bottom || !bottom.height) return;
+    const landscape = innerWidth > innerHeight && innerWidth >= 820;
+    if (landscape) v.setCenterOffset(-(bottom.width + 20) / 2, 0);
+    else v.setCenterOffset(0, (innerHeight - bottom.top - top.bottom) / 2 * 0.9);
   }
 
   /* ================= seat-class rules ================= */
@@ -365,7 +449,7 @@ export class Flight {
 
   /** The globe stops rendering while it can't be seen (window view, shade) — saves battery. */
   syncRendering() {
-    const hidden = this.mode === "window" || this.app.classList.contains("shade-down");
+    const hidden = (this.mode === "window" && !this.windowLive) || this.app.classList.contains("shade-down");
     if (hidden === this.globePaused) return;
     this.globePaused = hidden;
     if (hidden) this.view.globe.pauseAnimation(); else this.view.globe.resumeAnimation();
@@ -498,6 +582,8 @@ export class Flight {
     delete this.app.dataset.cls;
     this.view.removePlane();
     this.view.clearRoute();
+    this.view.clearEndpoints();
+    this.view.setLabels([]);
     this.view.showRadar(true);
   }
 }

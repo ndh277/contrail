@@ -16,4 +16,6 @@ Run locally: `python3 -m http.server` in the repo root, then open http://localho
 
 Credits: airport data © OurAirports (public domain); Earth textures NASA Visible Earth
 (Blue Marble, Black Marble); globe.gl and three.js (MIT); fonts Big Shoulders Display,
-Be Vietnam Pro and IBM Plex Mono (SIL OFL).
+Be Vietnam Pro and IBM Plex Mono (SIL OFL); close-up satellite imagery (3D and window views,
+loaded online) Sentinel-2 cloudless by EOX IT Services GmbH, contains modified Copernicus
+Sentinel data, CC BY-NC-SA 4.0. Clouds, sky, airliner and stamps are generated in code.

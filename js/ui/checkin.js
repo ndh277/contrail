@@ -38,6 +38,41 @@ const CABIN = [
   { cls: "economy", rows: [10, 11, 12, 14, 15, 16, 17, 18], layout: ["A", "B", "C", null, "D", "E", "F"], wingAfter: 12 },
 ];
 
+/**
+ * A luggage tag on its cord: cardstock body with chamfered corners, a punched
+ * metal eyelet, a colour band, the purpose in large type and a tiny barcode.
+ * Two stacked bodies (paper / colour) let CSS switch the selected state.
+ */
+function tagSVG(name, color, id, ghost = false) {
+  const size = name.length > 8 ? 12.5 : name.length > 6 ? 14 : 16;
+  const bars = Array.from({ length: 18 }, (_, i) => {
+    const w = (hash(name + i) % 3) + 0.6;
+    return `<rect x="${22 + i * 2.6}" y="128" width="${w * 0.7}" height="9"/>`;
+  }).join("");
+  const body = "M22 34 H68 L82 48 V138 Q82 145 75 145 H15 Q8 145 8 138 V48 Z";
+  return `<svg class="lt" viewBox="0 0 90 150" aria-hidden="true">
+    <defs>
+      <linearGradient id="${id}p" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fdfbf6"/><stop offset="1" stop-color="#e7dfcf"/></linearGradient>
+      <linearGradient id="${id}c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="${color}" stop-opacity=".82"/></linearGradient>
+      <linearGradient id="${id}s" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".35"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <radialGradient id="${id}g" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#ffffff"/><stop offset=".45" stop-color="#c9ced6"/><stop offset="1" stop-color="#7b828e"/></radialGradient>
+      <mask id="${id}m"><rect width="90" height="150" fill="#fff"/><circle cx="45" cy="50" r="4.2" fill="#000"/></mask>
+    </defs>
+    <path class="lt-cord" d="M45 0 C41 16 37 34 40.5 50 M45 0 C49 16 53 34 49.5 50" fill="none" stroke-width="1.8" stroke-linecap="round"/>
+    <g mask="url(#${id}m)">
+      <path class="lt-paper" d="${body}" fill="${ghost ? "none" : `url(#${id}p)`}" ${ghost ? 'stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 4"' : ""}/>
+      ${ghost ? "" : `<path class="lt-band" d="M8 62 H82 V70 H8 Z" fill="${color}"/>
+      <path class="lt-color" d="${body}" fill="url(#${id}c)"/>
+      <path class="lt-sheen" d="${body}" fill="url(#${id}s)"/>`}
+    </g>
+    <circle cx="45" cy="50" r="7" fill="url(#${id}g)"/>
+    <circle cx="45" cy="50" r="4.2" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1"/>
+    <path class="lt-cord" d="M40.5 50 Q45 55 49.5 50" fill="none" stroke-width="1.8" stroke-linecap="round"/>
+    <text class="lt-name" x="45" y="${102 + size * 0.3}" text-anchor="middle" font-size="${size}">${esc(name)}</text>
+    ${ghost ? "" : `<text class="lt-label" x="45" y="84" text-anchor="middle">PURPOSE</text><g class="lt-bars">${bars}</g>`}
+  </svg>`;
+}
+
 export class CheckIn {
   constructor({ root, onPrint, onBack }) {
     this.root = root;
@@ -94,6 +129,65 @@ export class CheckIn {
       `<div class="galley" aria-hidden="true"><span>Galley</span></div>` +
       zones.join(`<div class="bulkhead" aria-hidden="true"><span class="exit l">EXIT</span><span class="lav">Lav</span><span class="exit r">EXIT</span></div>`) +
       `<div class="galley" aria-hidden="true"><span>Galley</span></div>`;
+    requestAnimationFrame(() => this.drawAirframe());
+    if (!this.airframeObserver) {
+      this.airframeObserver = new ResizeObserver(() => this.drawAirframe());
+      this.airframeObserver.observe(this.$("#cabin"));
+    }
+  }
+
+  /** Draw the aircraft around the seat map, measured from the laid-out cabin. */
+  drawAirframe() {
+    const fus = this.$(".fuselage");
+    const cabin = this.$("#cabin");
+    const W = cabin.offsetWidth, top = cabin.offsetTop, H = cabin.offsetHeight;
+    if (!W || !H) return;
+    const N = top;                                   // nose spacer height
+    const T = top + H;                               // where the tail cone starts
+    const TL = this.$(".tail").offsetHeight;
+    const wingRow = cabin.querySelector(".wing-row");
+    const wy = wingRow ? top + wingRow.offsetTop : top + H * 0.6;
+    const c = W / 2;
+    const span = Math.max(150, W * 0.7);              // how far each wing reaches past the cabin
+    const nose = `M0 ${N} C0 ${N * 0.42} ${W * 0.2} 0 ${c} 0 C${W * 0.8} 0 ${W} ${N * 0.42} ${W} ${N}`;
+    const tail = `L${W} ${T} C${W} ${T + TL * 0.45} ${c + 22} ${T + TL * 0.92} ${c + 6} ${T + TL} L${c - 6} ${T + TL} C${c - 22} ${T + TL * 0.92} 0 ${T + TL * 0.45} 0 ${T}`;
+    const body = `${nose} ${tail} Z`;
+    const wing = (sg) => {
+      const x0 = sg < 0 ? 0 : W, dir = sg;
+      return `M${x0} ${wy - 96} L${x0 + dir * span} ${wy + 30} L${x0 + dir * span} ${wy + 62} L${x0 + dir * span * 0.25} ${wy + 54} L${x0} ${wy + 70} Z`;
+    };
+    const stab = (sg) => {
+      const x0 = sg < 0 ? c - 14 : c + 14;
+      return `M${x0} ${T + TL * 0.32} L${x0 + sg * 118} ${T + TL * 0.7} L${x0 + sg * 118} ${T + TL * 0.82} L${x0} ${T + TL * 0.7} Z`;
+    };
+    const engine = (sg) => {
+      const x = sg < 0 ? -span * 0.42 : W + span * 0.42;
+      return `<g class="af-engine"><rect x="${x - 15}" y="${wy - 110}" width="30" height="88" rx="15"/><ellipse cx="${x}" cy="${wy - 106}" rx="11" ry="4" class="af-inlet"/></g>`;
+    };
+    const windows = [];
+    for (let y = N + 26; y < T - 10; y += 24) {
+      windows.push(`<rect x="5" y="${y}" width="3.5" height="10" rx="1.75"/><rect x="${W - 8.5}" y="${y}" width="3.5" height="10" rx="1.75"/>`);
+    }
+    const svg = `<svg class="airframe" viewBox="${-span - 20} 0 ${W + 2 * span + 40} ${T + TL + 4}" style="left:${-span - 20}px; width:${W + 2 * span + 40}px; height:${T + TL + 4}px" aria-hidden="true">
+      <defs>
+        <linearGradient id="afSkin" x1="0" x2="1"><stop offset="0" class="s0"/><stop offset=".22" class="s1"/><stop offset=".5" class="s2"/><stop offset=".78" class="s1"/><stop offset="1" class="s0"/></linearGradient>
+        <linearGradient id="afWing" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="w0"/><stop offset="1" class="w1"/></linearGradient>
+      </defs>
+      <path class="af-wing" d="${wing(-1)}"/><path class="af-wing" d="${wing(1)}"/>
+      ${engine(-1)}${engine(1)}
+      <path class="af-wing" d="${stab(-1)}"/><path class="af-wing" d="${stab(1)}"/>
+      <path class="af-body" d="${body}"/>
+      <path class="af-fin" d="M${c - 3} ${T + TL * 0.2} L${c + 3} ${T + TL * 0.2} L${c + 2} ${T + TL - 4} L${c - 2} ${T + TL - 4} Z"/>
+      <g class="af-cockpit">
+        <path d="M${c - 3} ${N * 0.3} L${c - 18} ${N * 0.33} L${c - 17} ${N * 0.42} L${c - 3} ${N * 0.38} Z"/>
+        <path d="M${c + 3} ${N * 0.3} L${c + 18} ${N * 0.33} L${c + 17} ${N * 0.42} L${c + 3} ${N * 0.38} Z"/>
+        <path d="M${c - 21} ${N * 0.34} L${c - 31} ${N * 0.4} L${c - 29} ${N * 0.47} L${c - 20} ${N * 0.43} Z"/>
+        <path d="M${c + 21} ${N * 0.34} L${c + 31} ${N * 0.4} L${c + 29} ${N * 0.47} L${c + 20} ${N * 0.43} Z"/>
+      </g>
+      <g class="af-windows">${windows.join("")}</g>
+    </svg>`;
+    fus.querySelector(".airframe")?.remove();
+    fus.insertAdjacentHTML("afterbegin", svg);
   }
 
   pickSeat(btn) {
@@ -125,19 +219,16 @@ export class CheckIn {
 
   renderTags() {
     const rail = this.$("#tag-rail");
-    rail.innerHTML = tags.map((t) => `
-      <button class="luggage-tag${t.id === this.tagId ? " is-on" : ""}" data-tag="${esc(t.id)}" style="--tag:${esc(t.color)}" aria-pressed="${t.id === this.tagId}">
-        <span class="tag-string" aria-hidden="true"></span>
-        <span class="tag-body"><span class="tag-hole" aria-hidden="true"></span><span class="tag-name">${esc(t.name)}</span></span>
+    rail.innerHTML = tags.map((t, i) => `
+      <button class="luggage-tag${t.id === this.tagId ? " is-on" : ""}" data-tag="${esc(t.id)}" style="--tag:${esc(t.color)}" aria-pressed="${t.id === this.tagId}" aria-label="${esc(t.name)}">
+        ${tagSVG(t.name, t.color, `t${i}`)}
       </button>`).join("") + `
       <button class="luggage-tag tag-add" data-add aria-label="Add a purpose tag">
-        <span class="tag-string" aria-hidden="true"></span>
-        <span class="tag-body"><span class="tag-hole" aria-hidden="true"></span><span class="tag-name">+ New</span></span>
+        ${tagSVG("+ New", "#9aa3b5", "tadd", true)}
       </button>`;
     this.springs.clear();
     rail.querySelectorAll(".luggage-tag[data-tag]").forEach((el) => {
-      const body = el;
-      const s = new Spring({ stiffness: 120, damping: 7, onUpdate: (v) => { body.style.setProperty("--swing", `${v}deg`); } });
+      const s = new Spring({ stiffness: 120, damping: 7, onUpdate: (v) => { el.style.setProperty("--swing", `${v}deg`); } });
       this.springs.set(el.dataset.tag, s);
     });
   }

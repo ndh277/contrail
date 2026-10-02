@@ -6,66 +6,14 @@
 import * as THREE from "../vendor/three.core-0.185.1.min.js";
 import { subsolarPoint, interpolateGC, haversineKm, EARTH_RADIUS_KM } from "./geo.js";
 import { QUALITY, qualityTier } from "./settings.js";
+import { bakeVertex, bakeFragment, earthVertex, earthFragment, cloudVertex, cloudFragment, atmosphereVertex, atmosphereFragment, skyVertex, skyFragment, deckFragment, airSkyFragment } from "./globe/shaders.js";
+import { look, sunElevation } from "./globe/skylook.js";
+
+const REAL_CRUISE = 11 / 6371;   // 11 km cruise altitude, in globe radii
+import { buildAirliner } from "./globe/airliner.js";
+import { SatelliteLayer } from "./globe/satellite.js";
 
 export { THREE };
-
-const dayNightVertex = /* glsl */ `
-  varying vec3 vWorldNormal;
-  varying vec3 vWorldPos;
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const dayNightFragment = /* glsl */ `
-  uniform sampler2D dayTexture;
-  uniform sampler2D nightTexture;
-  uniform vec3 sunDirection;
-  uniform float cityLights;
-  varying vec3 vWorldNormal;
-  varying vec3 vWorldPos;
-  varying vec2 vUv;
-  void main() {
-    vec3 n = normalize(vWorldNormal);
-    vec3 viewDir = normalize(cameraPosition - vWorldPos);
-    float cosSun = dot(n, sunDirection);
-    vec3 day = texture2D(dayTexture, vUv).rgb;
-    vec3 night = texture2D(nightTexture, vUv).rgb;
-
-    // soft daylight shading, never fully flat
-    float shade = 0.55 + 0.6 * clamp(cosSun, 0.0, 1.0);
-    vec3 dayLit = day * shade;
-
-    // city lights: lift the bright pixels, keep the oceans deep blue-black
-    float lum = dot(night, vec3(0.299, 0.587, 0.114));
-    vec3 nightLit = night * cityLights * (0.6 + 0.8 * smoothstep(0.15, 0.6, lum))
-                  + vec3(0.010, 0.016, 0.032);
-
-    // civil-twilight width ~6 degrees each side
-    float blend = smoothstep(-0.1, 0.1, cosSun);
-    vec3 color = mix(nightLit, dayLit, blend);
-
-    // a warm band hugging the terminator
-    float band = exp(-pow(cosSun / 0.07, 2.0));
-    color += vec3(1.0, 0.52, 0.22) * band * 0.10;
-
-    // sun glint on open water (water = blue-dominant pixels of the day map)
-    float water = smoothstep(0.04, 0.16, day.b - max(day.r, day.g) * 0.95);
-    vec3 halfV = normalize(sunDirection + viewDir);
-    float spec = pow(max(dot(n, halfV), 0.0), 70.0) * 0.55 + pow(max(dot(n, halfV), 0.0), 12.0) * 0.06;
-    color += vec3(1.0, 0.93, 0.8) * spec * water * smoothstep(0.0, 0.2, cosSun);
-
-    // thin blue haze towards the limb on the day side
-    float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
-    color = mix(color, vec3(0.45, 0.65, 1.0), rim * 0.45 * smoothstep(-0.15, 0.4, cosSun));
-
-    gl_FragColor = vec4(color, 1.0);
-  }
-`;
 
 const radarVertex = /* glsl */ `
   varying vec3 vDir;
@@ -377,29 +325,83 @@ export class GlobeView {
       rendererConfig: { antialias: this.tier !== "low", alpha: true, powerPreference: "high-performance" },
       animateIn: false,
     });
+    const octaves = { high: 5, medium: 4, low: 3 }[this.tier];
+    this.time = { value: 0 };
+    const sunDirection = { value: new THREE.Vector3(1, 0, 0) };
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         dayTexture: { value: null },
         nightTexture: { value: null },
-        sunDirection: { value: new THREE.Vector3(1, 0, 0) },
+        reliefTexture: { value: null },
+        reliefTexel: { value: new THREE.Vector2(1 / 2048, 1 / 1024) },
+        sunDirection,
         cityLights: { value: 1.35 },
+        uTime: this.time,
+        uCloudShadow: { value: 0.7 },
+        cloudMap: { value: null },
       },
-      vertexShader: dayNightVertex,
-      fragmentShader: dayNightFragment,
+      defines: { OCTAVES: Math.max(3, octaves - 1) },
+      vertexShader: earthVertex,
+      fragmentShader: earthFragment,
     });
 
     this.globe
       .backgroundColor("rgba(0,0,0,0)")
-      .showAtmosphere(true)
-      .atmosphereColor(getComputedStyle(document.documentElement).getPropertyValue("--globe-atmosphere").trim() || "#79a7ff")
-      .atmosphereAltitude(0.16)
+      .showAtmosphere(false)
       .globeMaterial(this.material)
       .htmlTransitionDuration(0)
       .htmlElement((d) => d.el);
 
+    this.R = this.globe.getGlobeRadius();
+
+    // moving clouds, a scattering atmosphere, and deep space behind everything
+    this.clouds = new THREE.Mesh(
+      new THREE.SphereGeometry(this.R * 1.0065, 160, 80),
+      new THREE.ShaderMaterial({
+        uniforms: { sunDirection, uTime: this.time, uOpacity: { value: 0.95 }, cloudMap: { value: null } },
+        defines: { OCTAVES: octaves },
+        vertexShader: cloudVertex, fragmentShader: cloudFragment,
+        transparent: true, depthWrite: false,
+      }),
+    );
+    this.clouds.renderOrder = 5;
+    this.scene.add(this.clouds);
+
+    this.atmosphere = new THREE.Mesh(
+      new THREE.SphereGeometry(this.R * 1.11, 96, 48),
+      new THREE.ShaderMaterial({
+        uniforms: { sunDirection, uCenter: { value: new THREE.Vector3() } },
+        vertexShader: atmosphereVertex, fragmentShader: atmosphereFragment,
+        side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      }),
+    );
+    this.atmosphere.renderOrder = 6;
+    this.scene.add(this.atmosphere);
+
+    this.sky = new THREE.Mesh(
+      new THREE.SphereGeometry(50, 48, 24),
+      new THREE.ShaderMaterial({
+        uniforms: { uOpacity: { value: 1 } },
+        defines: { OCTAVES: 4 },
+        vertexShader: skyVertex, fragmentShader: skyFragment,
+        side: THREE.BackSide, depthWrite: false, depthTest: false,
+      }),
+    );
+    this.sky.renderOrder = -10;
+    this.sky.frustumCulled = false;
+    this.scene.add(this.sky);
+
+    // the sun, for the 3D airliner (shader layers do their own lighting)
+    this.sunLight = new THREE.DirectionalLight(0xfff4e6, 2.8);
+    this.fillLight = new THREE.HemisphereLight(0xbfd6ff, 0x1a2233, 0.6);
+    this.globe.lights([this.sunLight, this.fillLight]);
+
+    this.satellite = new SatelliteLayer(this);
+    this.setupCloudBake(octaves);
+    this.viewMode = "globe";
+
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
     this.renderer.setPixelRatio(this.pixelRatio);
-    this.R = this.globe.getGlobeRadius();
     this.controls.minDistance = this.R * 1.08;
     this.controls.maxDistance = this.R * 6;
     this.controls.enablePan = false;
@@ -427,6 +429,64 @@ export class GlobeView {
     this.resize();
   }
 
+  /* ---------------- cloud field, baked on the GPU every few seconds ---------------- */
+
+  setupCloudBake(octaves) {
+    const w = { high: 4096, medium: 2048, low: 1024 }[this.tier];
+    this.cloudRT = [0, 1].map(() => {
+      const rt = new THREE.WebGLRenderTarget(w, w / 2, { depthBuffer: false, stencilBuffer: false });
+      rt.texture.wrapS = THREE.RepeatWrapping;
+      rt.texture.minFilter = THREE.LinearFilter;
+      rt.texture.magFilter = THREE.LinearFilter;
+      rt.texture.generateMipmaps = false;
+      return rt;
+    });
+    this.bakeTime = { value: 0 };
+    this.bakeScene = new THREE.Scene();
+    this.bakeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this.bakeScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+      uniforms: { uTime: this.bakeTime, uStrip: { value: new THREE.Vector2(0, 1) } },
+      defines: { OCTAVES: Math.max(5, octaves + 1) },
+      vertexShader: bakeVertex, fragmentShader: bakeFragment, depthTest: false, depthWrite: false,
+    })));
+    this.bakeStrip = this.bakeScene.children[0].material.uniforms.uStrip;
+    this.cloudFrame = 0;
+    this.bakeClouds(0);                      // the first one in a single pass
+  }
+
+  /**
+   * Render the cloud field into the back buffer, then swap it in.
+   * With `strips`, the work is spread over that many frames (no hitch on the phone).
+   */
+  bakeClouds(seconds, strips = 1) {
+    this.bakeJob = { seconds, strips, i: 0 };
+    this.stepBake();
+  }
+
+  stepBake() {
+    const job = this.bakeJob;
+    if (!job) return;
+    const r = this.renderer;
+    const rt = this.cloudRT[this.cloudFrame % 2];
+    this.bakeTime.value = job.seconds;
+    this.bakeStrip.value.set(job.i / job.strips, (job.i + 1) / job.strips);
+    const prev = r.getRenderTarget();
+    const clear = r.autoClear;
+    r.autoClear = false;                      // keep the strips already drawn
+    r.setRenderTarget(rt);
+    r.render(this.bakeScene, this.bakeCam);
+    r.setRenderTarget(prev);
+    r.autoClear = clear;
+    job.i++;
+    if (job.i < job.strips) return;
+    this.bakeJob = null;
+    this.cloudFrame++;
+    for (const m of [this.material, this.clouds.material, this.deck?.material]) {
+      if (m) m.uniforms.cloudMap.value = rt.texture;
+    }
+    this.lastBake = performance.now();
+  }
+
   get renderer() { return this.globe.renderer(); }
   get camera() { return this.globe.camera(); }
   get scene() { return this.globe.scene(); }
@@ -435,14 +495,16 @@ export class GlobeView {
   async loadTextures(res) {
     const loader = new THREE.TextureLoader();
     const load = (url) => new Promise((ok, fail) => loader.load(url, ok, undefined, fail));
-    const [day, night] = await Promise.all([
+    const [day, night, relief] = await Promise.all([
       load(`assets/textures/earth-day-${res}.jpg`),
       load(`assets/textures/earth-night-${res}.jpg`),
+      load("assets/textures/earth-relief-2k.png"),
     ]);
     const aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     for (const t of [day, night]) t.anisotropy = aniso;
     this.material.uniforms.dayTexture.value = day;
     this.material.uniforms.nightTexture.value = night;
+    this.material.uniforms.reliefTexture.value = relief;
     this.el.classList.add("is-ready");
   }
 
@@ -455,13 +517,35 @@ export class GlobeView {
   updateSun(date = new Date()) {
     const s = subsolarPoint(date);
     this.sun = s;
-    this.material.uniforms.sunDirection.value.copy(this.coords(s.lat, s.lng, 0)).normalize();
+    const dir = this.material.uniforms.sunDirection.value.copy(this.coords(s.lat, s.lng, 0)).normalize();
+    this.sunLight?.position.copy(dir).multiplyScalar(1000);
   }
 
   resize() {
     const { clientWidth: w, clientHeight: h } = this.el;
     if (!w || !h) return;
     this.globe.width(w).height(h);
+    this.applyCenterOffset();
+  }
+
+  /**
+   * Move the projection centre so the globe sits in the visible part of the screen
+   * (above a bottom sheet, left of a side panel). dx/dy in CSS px, positive = shift scene left/up.
+   */
+  setCenterOffset(dx = 0, dy = 0, visible = null) {
+    this.centerOffset = { dx, dy };
+    this.visible = visible;
+    this.applyCenterOffset();
+  }
+
+  applyCenterOffset() {
+    const cam = this.camera;
+    const { clientWidth: w, clientHeight: h } = this.el;
+    const o = this.centerOffset || { dx: 0, dy: 0 };
+    if (!w || !h) return;
+    if (!o.dx && !o.dy) cam.clearViewOffset();
+    else cam.setViewOffset(w, h, o.dx, o.dy, w, h);
+    cam.updateProjectionMatrix();
   }
 
   pointOfView(pov, ms = 0) { return this.globe.pointOfView(pov, ms); }
@@ -473,16 +557,25 @@ export class GlobeView {
     this.lastT = t;
     if (this.radar) this.radar.material.uniforms.uSweep.value = (t / 1000) * 1.7;
     if (this.stars) this.stars.material.uniforms.uTime.value = t / 1000;
+    this.time.value = (t / 1000) * 0.6;
+    // the cloud field drifts slowly; re-bake every few seconds
+    if (this.bakeJob) this.stepBake();
+    else if (this.cloudRT && t - this.lastBake > 5000) this.bakeClouds(this.time.value, 16);
+    this.sky.position.copy(this.camera.position);
+    if (this.airSky) this.airSky.position.copy(this.camera.position);
     if (this.navLights) this.navLights.material.uniforms.uTime.value = t / 1000;
     if (this.route) {
       const u = this.route.material.uniforms;
       u.uTime.value = t / 1000;
       // keep the line ~2 px thick at any zoom (the mesh is 3x the core for the glow)
-      u.uWidth.value = Math.max(0.02, (this.camera.position.length() - this.R) * 0.0042) * (this.pixelRatio > 1.5 ? 1 : 1.2);
+      const ref = this.viewMode === "globe" ? this.camera.position.length() - this.R : this.camera.position.distanceTo(this.planeState?.pos || this.camera.position) + 0.4;
+      u.uWidth.value = Math.max(0.004, ref * (this.viewMode === "globe" ? 0.0042 : 0.006)) * (this.pixelRatio > 1.5 ? 1 : 1.2);
     }
     this.stepPings(t);
+    this.stepEndpoints(t);
     for (const fn of this.frameHooks) fn(t, dt);
-    this.stepCamera(dt);
+    if (this.viewMode === "globe") this.stepCamera(dt);
+    else this.stepCloseCamera(dt);
     if (this.plane) this.scalePlane();
   }
 
@@ -492,8 +585,10 @@ export class GlobeView {
   fitAltitude(angle, margin = 0.82) {
     const cam = this.camera;
     const vfov = (cam.fov * Math.PI) / 180;
-    const aspect = Math.max(0.3, (this.el.clientWidth || 1) / (this.el.clientHeight || 1));
-    const half = Math.min(vfov / 2, Math.atan(Math.tan(vfov / 2) * aspect)) * margin;
+    const H = this.el.clientHeight || 1;
+    const vis = this.visible || { w: this.el.clientWidth || 1, h: H };
+    const t = Math.tan(vfov / 2);
+    const half = Math.min(Math.atan(t * vis.h / H), Math.atan(t * Math.max(0.3 * H, vis.w) / H)) * margin;
     const a = Math.min(angle, Math.PI / 2 * 0.98);
     const D = Math.cos(a) + Math.sin(a) / Math.tan(half);
     return Math.min(4.5, Math.max(0.12, D - 1));
@@ -627,10 +722,11 @@ export class GlobeView {
     return cruise * s(Math.max(0, Math.min(up, down)));
   }
 
-  routeCruise(distKm) { return Math.min(0.12, 0.012 + distKm / 40000); }
+  routeCruise(distKm) { return this.viewMode === "globe" ? Math.min(0.12, 0.012 + distKm / 40000) : REAL_CRUISE; }
 
   setRoute(from, to, { preview = false } = {}) {
     this.clearRoute();
+    this.routeArgs = { from, to, preview };
     if (!from || !to) return;
     const distKm = Math.max(1, haversineKm(from.lat, from.lng, to.lat, to.lng));
     const cruise = this.routeCruise(distKm);
@@ -639,7 +735,7 @@ export class GlobeView {
     for (let i = 0; i <= N; i++) {
       const f = i / N;
       const p = interpolateGC(from.lat, from.lng, to.lat, to.lng, f);
-      centers.push(this.coords(p.lat, p.lng, this.routeAltitude(f, cruise) + 0.0015));
+      centers.push(this.coords(p.lat, p.lng, this.routeAltitude(f, cruise) + (this.viewMode === "globe" ? 0.0015 : 0.00001)));
     }
     const pos = new Float32Array((N + 1) * 2 * 3), side = new Float32Array((N + 1) * 2 * 3);
     const sgn = new Float32Array((N + 1) * 2), uu = new Float32Array((N + 1) * 2);
@@ -681,9 +777,10 @@ export class GlobeView {
     return this.routeInfo;
   }
 
-  setRouteProgress(p) { if (this.route) this.route.material.uniforms.uProgress.value = p; }
+  setRouteProgress(p) { this.routeProgress = p; if (this.route) this.route.material.uniforms.uProgress.value = p; }
 
   clearRoute() {
+    this.routeArgs = null;
     if (this.route) { this.scene.remove(this.route); this.route.geometry.dispose(); this.route.material.dispose(); this.route = null; }
     this.routeInfo = null;
   }
@@ -691,18 +788,18 @@ export class GlobeView {
   ensurePlane() {
     if (this.plane) return;
     if (!this.planeTex) {
-      const { plane, shadow } = airlinerTextures(getComputedStyle(document.documentElement).getPropertyValue("--amber-400").trim() || "#f4b15a");
-      const mk = (c) => { const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; };
-      this.planeTex = { plane: mk(plane), shadow: mk(shadow) };
+      const { shadow } = airlinerTextures();
+      const t = new THREE.CanvasTexture(shadow); t.anisotropy = 4;
+      this.planeTex = { shadow: t };
     }
     const quad = new THREE.PlaneGeometry(2, 2);
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
-    const body = new THREE.Mesh(quad, new THREE.MeshBasicMaterial({ map: this.planeTex.plane, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
-    body.renderOrder = 7;
-    // navigation lights: red port, green starboard, white tail strobe, red beacon
+    const model = buildAirliner(getComputedStyle(document.documentElement).getPropertyValue("--amber-400").trim() || "#f4b15a");
+    model.traverse((m) => { if (m.isMesh) m.renderOrder = 8; });
+    // navigation lights: red port, green starboard, white tail strobe, red beacon on top
     const lightsGeo = new THREE.BufferGeometry();
-    lightsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.91, -0.27, 0.01, 0.91, -0.27, 0.01, 0, -0.9, 0.01, 0, 0.1, 0.01]), 3));
+    lightsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.97, -0.37, 0.0, 0.97, -0.37, 0.0, 0, -1.0, 0.06, 0, -0.1, 0.11]), 3));
     lightsGeo.setAttribute("aColor", new THREE.BufferAttribute(new Float32Array([1, 0.25, 0.2, 0.3, 1, 0.45, 1, 1, 1, 1, 0.3, 0.25]), 3));
     lightsGeo.setAttribute("aBlink", new THREE.BufferAttribute(new Float32Array([0, 0, 0.6, 0.85]), 1));
     this.navLights = new THREE.Points(lightsGeo, new THREE.ShaderMaterial({
@@ -711,7 +808,7 @@ export class GlobeView {
     }));
     this.navLights.renderOrder = 9;
     this.navLights.frustumCulled = false;
-    group.add(body, this.navLights);
+    group.add(model, this.navLights);
     this.plane = group;
     this.scene.add(group);
 
@@ -764,7 +861,8 @@ export class GlobeView {
     const { from, to, cruise } = this.routeInfo;
     const at = (ff, ground = false) => {
       const p = interpolateGC(from.lat, from.lng, to.lat, to.lng, Math.max(0, Math.min(1, ff)));
-      const alt = ground ? 0.0008 : Math.max(this.routeAltitude(ff, cruise), 0) * climb + 0.003;
+      const lift = this.viewMode === "globe" ? 0.003 : 0.00002;
+      const alt = ground ? 0.0008 * (lift > 0.001 ? 1 : 0.02) : Math.max(this.routeAltitude(ff, cruise), 0) * climb + lift;
       return this.coords(p.lat, p.lng, alt);
     };
     const pos = at(f);
@@ -781,7 +879,9 @@ export class GlobeView {
     // shadow fades as the plane climbs away, and only exists in daylight
     const sunUp = up.dot(this.material.uniforms.sunDirection.value);
     const height = pos.length() / this.R - 1;
-    this.planeState.shadow = 0.34 * Math.max(0, Math.min(1, (sunUp + 0.05) / 0.25)) * Math.max(0, 1 - height / 0.06);
+    // the shadow only reads while the plane is near the ground (take-off and landing)
+    const near = this.viewMode === "globe" ? 1 - height / 0.06 : 1 - (height * 6371) / 2.5;
+    this.planeState.shadow = 0.34 * Math.max(0, Math.min(1, (sunUp + 0.05) / 0.25)) * Math.max(0, near);
     this.scalePlane();
 
     // contrail: a soft ribbon behind the plane, widening and fading as it ages
@@ -811,8 +911,8 @@ export class GlobeView {
 
   scalePlane() {
     if (!this.plane) return;
-    const camDist = this.camera.position.length();
-    const s = Math.max(0.3, (camDist - this.R) * 0.03);
+    const camDist = this.camera.position.distanceTo(this.planeState.pos);
+    const s = this.viewMode === "chase" ? camDist * 0.085 : Math.max(0.3, camDist * 0.03);
     this.planeState.scale = s;
     const v = new THREE.Vector3(s, s, s);
     this.plane.matrix.copy(this.planeState.basis).scale(v).setPosition(this.planeState.pos);
@@ -882,6 +982,231 @@ export class GlobeView {
       const e = 1 - Math.pow(1 - k, 3);
       p.mesh.scale.setScalar(base * (0.4 + 2.6 * e));
       p.mesh.material.opacity = 0.85 * (1 - k);
+    }
+  }
+
+  /* ---------------- route endpoints ---------------- */
+
+  /** Glowing ground markers at the origin and destination (pulsing at the destination). */
+  setEndpoints(from, to) {
+    this.clearEndpoints();
+    if (!from || !to) return;
+    const ring = new THREE.RingGeometry(0.62, 1, 64);
+    const disc = new THREE.CircleGeometry(0.34, 32);
+    const mk = (a, color, pulse) => {
+      const g = new THREE.Group();
+      const pos = this.coords(a.lat, a.lng, 0.0004);
+      g.position.copy(pos);
+      g.lookAt(pos.clone().multiplyScalar(2));
+      const m1 = new THREE.Mesh(ring, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+      const m2 = new THREE.Mesh(disc, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
+      const halo = new THREE.Mesh(ring, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+      for (const m of [m1, m2, halo]) { m.renderOrder = 4; g.add(m); }
+      g.userData = { pulse, halo };
+      this.scene.add(g);
+      return g;
+    };
+    this.endpoints = [mk(from, cssColor("--paper-50", "#fbf6ea"), false), mk(to, cssColor("--amber-400", "#f4b15a"), true)];
+  }
+
+  clearEndpoints() {
+    for (const g of this.endpoints || []) this.scene.remove(g);
+    this.endpoints = null;
+  }
+
+  stepEndpoints(t) {
+    if (!this.endpoints) return;
+    for (const g of this.endpoints) {
+      const d = this.camera.position.distanceTo(g.position);
+      g.scale.setScalar(Math.max(0.004, d * 0.011));
+      const { pulse, halo } = g.userData;
+      if (pulse) {
+        const k = (t / 1600) % 1;
+        halo.scale.setScalar(1 + k * 2.2);
+        halo.material.opacity = 0.6 * (1 - k);
+      }
+    }
+  }
+
+  /* ---------------- view modes: globe / chase (3D follow) / window ---------------- */
+
+  /**
+   * globe  — the whole earth, orbit controls
+   * chase  — a camera following the plane over satellite imagery
+   * window — the view from a left-hand window seat
+   */
+  setViewMode(mode) {
+    if (mode === this.viewMode) return;
+    const prev = this.viewMode;
+    this.viewMode = mode;
+    const close = mode !== "globe";
+    const cam = this.camera, ctl = this.controls;
+    if (close && prev === "globe") {
+      this.savedControlsUpdate = ctl.update;
+      ctl.update = () => false;
+      ctl.enabled = false;
+      this.savedNear = cam.near;
+      this.savedFar = cam.far;
+    }
+    if (!close) {
+      if (this.savedControlsUpdate) ctl.update = this.savedControlsUpdate;
+      ctl.enabled = true;
+      cam.up.set(0, 1, 0);
+      ctl.target.set(0, 0, 0);
+      cam.near = this.savedNear ?? cam.near;
+      cam.far = this.savedFar ?? cam.far;
+    } else {
+      cam.near = 0.0015;
+      cam.far = 700;
+    }
+    cam.updateProjectionMatrix();
+    this.ensureCloseLayers();
+    this.clouds.visible = !close;
+    this.atmosphere.visible = !close;
+    this.sky.visible = !close;
+    if (this.stars) this.stars.visible = !close;
+    this.airSky.visible = close;
+    this.deck.visible = close;
+    this.satellite.setVisible(close);
+    this.satellite.configure(mode === "window"
+      ? { levels: [{ z: 8, ring: 3 }, { z: 10, ring: 3 }, { z: 12, ring: 2 }], hazeDist: 2.2 }
+      : { levels: [{ z: 7, ring: 3 }, { z: 9, ring: 3 }, { z: 11, ring: 2 }], hazeDist: 5 });
+    if (this.plane) this.plane.visible = mode !== "window";
+    if (this.trail) this.trail.visible = mode !== "window";
+    if (this.shadow) this.shadow.visible = mode !== "window";
+    // rebuild the route at the right altitude scale for this view
+    if (this.routeArgs) {
+      const { from, to, preview } = this.routeArgs;
+      this.setRoute(from, to, { preview });
+      this.setRouteProgress(this.routeProgress || 0);
+    }
+    if (this.route) this.route.visible = mode !== "window";
+    this.chase = { yaw: 0, pitch: 0.42, dist: 2.4 };
+    this.closeCam = null;
+    this.lastLookAt = 0;
+  }
+
+  ensureCloseLayers() {
+    if (this.deck) return;
+    const sunDirection = this.material.uniforms.sunDirection;
+    // a cap of sphere ~1,100 km across at 2 km altitude, re-centred under the plane each frame
+    const capAngle = (550 / 6371);
+    const geo = new THREE.SphereGeometry(this.R * (1 + 2 / 6371), 96, 48, 0, Math.PI * 2, 0, capAngle);
+    this.deck = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+      uniforms: {
+        sunDirection, uTime: this.time, uCenter: { value: new THREE.Vector3() }, uRadius: { value: this.R * capAngle },
+        cloudMap: { value: this.cloudRT[(this.cloudFrame + 1) % 2].texture },
+        uHaze: { value: new THREE.Color("#b9cde6") }, uHazeDist: { value: 4 },
+      },
+      defines: { OCTAVES: this.tier === "low" ? 4 : 5 },
+      vertexShader: cloudVertex, fragmentShader: deckFragment,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    }));
+    this.deck.renderOrder = 6;
+    this.deck.frustumCulled = false;
+    this.deck.visible = false;
+    this.scene.add(this.deck);
+
+    this.airSky = new THREE.Mesh(
+      new THREE.SphereGeometry(50, 48, 24),
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uUp: { value: new THREE.Vector3(0, 1, 0) }, sunDirection,
+          uZenith: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uSunCol: { value: new THREE.Color() }, uNight: { value: 0 },
+        },
+        defines: { OCTAVES: 3 },
+        vertexShader: skyVertex, fragmentShader: airSkyFragment,
+        side: THREE.BackSide, depthWrite: false, depthTest: false,
+      }),
+    );
+    this.airSky.renderOrder = -10;
+    this.airSky.frustumCulled = false;
+    this.airSky.visible = false;
+    this.scene.add(this.airSky);
+
+    // drag to look around the plane in the follow view
+    const el = this.el;
+    let drag = null;
+    el.addEventListener("pointerdown", (e) => {
+      if (this.viewMode !== "chase") return;
+      drag = { x: e.clientX, y: e.clientY, yaw: this.chase.yaw, pitch: this.chase.pitch };
+      this.lastUserInput = performance.now();
+    });
+    addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      this.chase.yaw = drag.yaw - (e.clientX - drag.x) * 0.006;
+      this.chase.pitch = Math.max(0.08, Math.min(1.35, drag.pitch + (e.clientY - drag.y) * 0.004));
+      this.lastUserInput = performance.now();
+    });
+    addEventListener("pointerup", () => { drag = null; });
+    el.addEventListener("wheel", (e) => {
+      if (this.viewMode !== "chase") return;
+      this.chase.dist = Math.max(0.6, Math.min(9, this.chase.dist * (1 + Math.sign(e.deltaY) * 0.12)));
+    }, { passive: true });
+    let pinch = null;
+    el.addEventListener("touchmove", (e) => {
+      if (this.viewMode !== "chase" || e.touches.length !== 2) { pinch = null; return; }
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      if (pinch) this.chase.dist = Math.max(0.6, Math.min(9, pinch.dist * pinch.d / d));
+      else pinch = { d, dist: this.chase.dist };
+    }, { passive: true });
+    el.addEventListener("touchend", () => { pinch = null; });
+  }
+
+  /** Camera for the close views; also keeps imagery, clouds and sky centred on the plane. */
+  stepCloseCamera(dt) {
+    if (!this.planeState || !this.plane) return;
+    const pos = this.planeState.pos;
+    const up = pos.clone().normalize();
+    const basis = this.planeState.basis.elements;
+    const fwd = new THREE.Vector3(basis[4], basis[5], basis[6]).normalize();   // column 1 = forward
+    const right = new THREE.Vector3(basis[0], basis[1], basis[2]).normalize();
+    const cam = this.camera;
+    let camPos, target, lookCenter;
+    if (this.viewMode === "chase") {
+      const c = this.chase;
+      // orbit offset: behind the plane, raised by `pitch`, turned by `yaw`
+      const back = fwd.clone().multiplyScalar(-Math.cos(c.yaw)).add(right.clone().multiplyScalar(Math.sin(c.yaw)));
+      camPos = pos.clone()
+        .add(back.multiplyScalar(c.dist * Math.cos(c.pitch)))
+        .add(up.clone().multiplyScalar(c.dist * Math.sin(c.pitch)));
+      target = pos.clone().add(fwd.clone().multiplyScalar(c.dist * 0.12));
+      lookCenter = pos.clone().add(fwd.clone().multiplyScalar(c.dist * 0.6));
+    } else {
+      // seated at the left window: looking out to port, slightly down toward the horizon
+      const port = right.clone().negate();
+      camPos = pos.clone().add(up.clone().multiplyScalar(0.0004));
+      target = camPos.clone().add(port.multiplyScalar(1)).add(up.clone().multiplyScalar(-0.2)).add(fwd.clone().multiplyScalar(0.15));
+      lookCenter = pos.clone().add(right.clone().negate().multiplyScalar(1.4));
+    }
+    const k = this.viewMode === "window" || !this.closeCam ? 1 : 1 - Math.exp(-3.2 * dt);
+    if (!this.closeCam) this.closeCam = { pos: camPos.clone(), target: target.clone() };
+    this.closeCam.pos.lerp(camPos, k);
+    this.closeCam.target.lerp(target, k);
+    cam.position.copy(this.closeCam.pos);
+    cam.up.copy(up);
+    cam.lookAt(this.closeCam.target);
+    this.controls.target.copy(this.closeCam.target);
+
+    // keep the layers around the plane
+    const g = this.globe.toGeoCoords(lookCenter);
+    this.satellite.update(g.lat, g.lng);
+    this.deck.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pos.clone().normalize());
+    this.deck.material.uniforms.uCenter.value.copy(pos.clone().normalize().multiplyScalar(this.R));
+    const u = this.airSky.material.uniforms;
+    u.uUp.value.copy(up);
+    if (!this.lastLookAt || performance.now() - this.lastLookAt > 3000) {
+      this.lastLookAt = performance.now();
+      const pg = this.globe.toGeoCoords(pos);
+      const L = look(sunElevation(pg.lat, pg.lng));
+      u.uZenith.value.setRGB(...L.zenith);
+      u.uHorizon.value.setRGB(...L.horizon);
+      u.uSunCol.value.setRGB(...L.sun);
+      u.uNight.value = L.night;
+      const haze = new THREE.Color().setRGB(...L.horizon);
+      this.satellite.configure({ haze });
+      this.deck.material.uniforms.uHaze.value.copy(haze);
+      this.closeLook = L;
     }
   }
 

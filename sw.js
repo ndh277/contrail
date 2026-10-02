@@ -3,7 +3,7 @@
 // heavy, versioned assets (vendor libs, textures, airport data) are cache-first.
 // Everything except the Google 3D mode (M3) works offline.
 
-const VERSION = "m2-2";
+const VERSION = "m2-3";
 const SHELL_CACHE = `contrail-shell-${VERSION}`;
 const ASSET_CACHE = "contrail-assets-v1";
 
@@ -38,6 +38,10 @@ const SHELL = [
   "js/flights.js",
   "js/ambience.js",
   "js/stamps.js",
+  "js/globe/shaders.js",
+  "js/globe/airliner.js",
+  "js/globe/satellite.js",
+  "js/globe/skylook.js",
   "assets/icons/icon.svg",
   "assets/icons/icon-192.png",
 ];
@@ -50,6 +54,7 @@ const ASSETS = [
   "assets/textures/earth-night-4k.jpg",
   "assets/textures/earth-day-2k.jpg",
   "assets/textures/earth-night-2k.jpg",
+  "assets/textures/earth-relief-2k.png",
   "assets/fonts/be-vietnam-pro-latin-400-normal.woff2",
   "assets/fonts/be-vietnam-pro-latin-600-normal.woff2",
   "assets/fonts/be-vietnam-pro-latin-ext-400-normal.woff2",
@@ -83,7 +88,7 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    const keep = new Set([SHELL_CACHE, ASSET_CACHE]);
+    const keep = new Set([SHELL_CACHE, ASSET_CACHE, TILE_CACHE]);
     for (const key of await caches.keys()) if (!keep.has(key)) await caches.delete(key);
     await self.clients.claim();
   })());
@@ -112,11 +117,31 @@ async function cacheFirst(request, cacheName) {
   return res;
 }
 
+const TILE_CACHE = "contrail-tiles-v1";
+const TILE_LIMIT = 600;
+async function tileCache(request) {
+  const cache = await caches.open(TILE_CACHE);
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const res = await fetch(request);
+  if (res.ok) {
+    await cache.put(request, res.clone());
+    const keys = await cache.keys();
+    for (let i = 0; i < keys.length - TILE_LIMIT; i++) await cache.delete(keys[i]);
+  }
+  return res;
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
 
+  // satellite tiles: keep the ones we've seen so a repeat route works offline
+  if (url.hostname === "tiles.maps.eox.at") {
+    event.respondWith(tileCache(request));
+    return;
+  }
   if (url.origin !== self.location.origin) return;
 
   if (/\/(vendor|assets\/textures|assets\/fonts|data)\//.test(url.pathname)) {

@@ -31,6 +31,31 @@ function registerServiceWorker() {
 
 function show(screen) {
   app.dataset.screen = screen;
+  requestAnimationFrame(updateGlobeOffset);
+}
+
+/** Centre the globe in whatever part of the screen the glass panels leave visible. */
+function updateGlobeOffset() {
+  const view = globeView;
+  if (!view) return;
+  const scr = app.dataset.screen;
+  if (scr === "flight" || scr === "landing") return;      // the flight view manages its own
+  const W = innerWidth, H = innerHeight;
+  const landscape = W > H && W >= 820;
+  // layout boxes (offset*), not getBoundingClientRect: panels may still be sliding in
+  const bar = document.querySelector(".topbar");
+  const top = bar.offsetTop + bar.offsetHeight;
+  if (landscape) {
+    const panel = scr === "departure" ? $("departure") : document.querySelector(`#${{ checkin: "checkin", pass: "pass-screen", logbook: "logbook" }[scr]}`);
+    const used = panel ? W - panel.offsetLeft : 0;
+    view.setCenterOffset(used / 2, -top / 2, { w: W - used - 24, h: H - top - 20 });
+  } else if (scr === "departure") {
+    const sheetTop = $("departure").offsetTop;
+    const visH = sheetTop - top;
+    view.setCenterOffset(0, (H - sheetTop - top) / 2, { w: W, h: visH });
+  } else {
+    view.setCenterOffset(0, 0, null);
+  }
 }
 
 async function boot() {
@@ -47,6 +72,8 @@ async function boot() {
   const view = new GlobeView($("globe"));
   globeView = view;
   applyTheme();
+  addEventListener("resize", () => requestAnimationFrame(updateGlobeOffset));
+  new ResizeObserver(() => updateGlobeOffset()).observe($("departure"));
   view.pointOfView({ lat: home.lat, lng: home.lng, altitude: 2.4 }, 0);
 
   const departure = new Departure({
