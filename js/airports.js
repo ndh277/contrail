@@ -26,18 +26,28 @@ export function distancesFrom(origin) {
   return { dist, order };
 }
 
+// Extra names people actually type.
+const ALIASES = { SGN: "saigon sai gon", HAN: "hanoi", DAD: "danang", HUI: "hue", CXR: "nhatrang", PQC: "phuquoc", VCA: "cantho", DLI: "dalat" };
+
+/** Lowercase, strip diacritics (Vietnamese included), so "ha noi" finds "Hà Nội". */
+export const fold = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+
 export function searchAirports(query, limit = 30) {
-  const q = query.trim().toLowerCase();
+  const q = fold(query.trim());
   if (!q) return [];
+  const qs = q.replace(/\s+/g, "");
   const scored = [];
   for (const a of airports) {
+    const iata = a.iata.toLowerCase();
+    const city = fold(a.city);
+    const alias = ALIASES[a.iata] || "";
     let s = -1;
-    if (a.iata.toLowerCase() === q) s = 100;
-    else if (a.iata.toLowerCase().startsWith(q)) s = 80;
-    else if (a.city.toLowerCase().startsWith(q)) s = 60;
-    else if (a.city.toLowerCase().includes(q)) s = 40;
-    else if (a.name.toLowerCase().includes(q)) s = 30;
-    else if (a.countryName.toLowerCase().startsWith(q)) s = 20;
+    if (iata === q) s = 100;
+    else if (iata.startsWith(q)) s = 80;
+    else if (city.startsWith(q) || city.replace(/\s+/g, "").startsWith(qs) || alias.startsWith(q) || alias.includes(` ${q}`)) s = 60;
+    else if (city.includes(q)) s = 40;
+    else if (fold(a.name).includes(q)) s = 30;
+    else if (fold(a.countryName).startsWith(q)) s = 20;
     if (s >= 0) scored.push([s + (a.large ? 5 : 0), a]);
   }
   return scored.sort((x, y) => y[0] - x[0]).slice(0, limit).map((x) => x[1]);

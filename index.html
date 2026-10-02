@@ -22,32 +22,175 @@
         <img src="assets/icons/icon.svg" alt="" width="28" height="28">
         <span class="brand-word">CONTRAIL</span>
       </div>
-      <div class="topbar-home" id="home-chip">
-        <span class="label">FROM</span>
-        <span class="code" id="home-code">HAN</span>
+      <div class="topbar-actions">
+        <button class="home-chip" id="home-chip" aria-label="Change home airport">
+          <span class="label">FROM</span>
+          <span class="code" id="home-code">HAN</span>
+        </button>
+        <button class="icon-btn round" id="settings-btn" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></g></svg>
+        </button>
       </div>
     </header>
 
+    <!-- ===== globe ===== -->
     <section class="globe-wrap" aria-label="Globe">
       <div id="globe" class="globe"></div>
+      <div class="globe-loading" aria-hidden="true"><span></span></div>
     </section>
 
-    <section class="sheet" id="sheet">
+    <!-- ===== departure sheet ===== -->
+    <section class="sheet" id="departure" aria-label="Departure">
       <div class="sheet-grip" aria-hidden="true"></div>
-      <div class="m0-card">
-        <p class="eyebrow">Ground crew check · M0</p>
-        <h1 class="m0-title">Cabin systems online</h1>
-        <dl class="m0-stats">
-          <div><dt>Airports loaded</dt><dd id="stat-airports">…</dd></div>
-          <div><dt>Home</dt><dd id="stat-home">…</dd></div>
-          <div><dt>Sun overhead</dt><dd id="stat-sun">…</dd></div>
-          <div><dt>Quality tier</dt><dd id="stat-quality">…</dd></div>
-          <div><dt>Viewport</dt><dd id="stat-viewport">…</dd></div>
-          <div><dt>Offline cache</dt><dd id="stat-offline">…</dd></div>
-        </dl>
-        <p class="m0-note">The departure board opens in M1.</p>
+      <div class="readout">
+        <div>
+          <p class="eyebrow">Focus time</p>
+          <p class="duration"><span id="dur-clock">0:25</span><small id="dur-words">minutes</small></p>
+        </div>
+        <p class="range-line" id="range-line">…</p>
+      </div>
+      <div id="dial" class="dial"></div>
+
+      <div class="dest-card" id="dest-card" hidden>
+        <div class="dest-info">
+          <span class="dest-code" id="dest-code"></span>
+          <span class="dest-text"><b id="dest-city"></b><small id="dest-meta"></small></span>
+        </div>
+        <button class="btn primary" id="checkin-btn">Check in</button>
+      </div>
+
+      <h2 class="list-head">Destinations that fit</h2>
+      <ul class="suggestions" id="suggestions"></ul>
+      <p class="fineprint">Tap a destination, or any airport on the globe, to set the dial to its flight time.</p>
+    </section>
+
+    <!-- ===== check-in ===== -->
+    <section class="screen checkin" id="checkin" aria-label="Check-in">
+      <header class="screen-head">
+        <button class="icon-btn round" id="checkin-back" aria-label="Back to departures">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div>
+          <p class="eyebrow">Check-in</p>
+          <h2 class="screen-title" id="checkin-route"></h2>
+        </div>
+      </header>
+
+      <div class="block">
+        <div class="block-head"><h3>Purpose</h3><button class="link-btn" id="tags-edit">Edit tags</button></div>
+        <div class="tag-rail-wrap"><div class="tag-rail" id="tag-rail"></div></div>
+      </div>
+
+      <div class="block">
+        <div class="block-head"><h3>Seat</h3></div>
+        <div class="fuselage">
+          <div class="nose" aria-hidden="true"></div>
+          <div class="cabin" id="cabin"></div>
+          <div class="tail" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <footer class="checkin-foot">
+        <div class="class-info" id="class-info"></div>
+        <button class="btn primary wide" id="print-btn" disabled>Choose a seat</button>
+      </footer>
+    </section>
+
+    <!-- ===== boarding pass ===== -->
+    <section class="screen pass-screen" id="pass-screen" aria-label="Boarding pass">
+      <header class="screen-head">
+        <button class="icon-btn round" id="pass-back" aria-label="Back to check-in">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div><p class="eyebrow">Gate open</p><h2 class="screen-title">Your boarding pass</h2></div>
+      </header>
+      <div class="printer">
+        <div class="printer-slot" aria-hidden="true"></div>
+        <div class="pass-clip">
+          <div class="pass-paper" id="pass-paper"></div>
+        </div>
+      </div>
+      <p class="tear-hint" id="tear-hint"><span class="tear-arrow" aria-hidden="true"></span>Pull the stub down to tear it off and depart</p>
+    </section>
+
+    <!-- ===== in flight (M1: take-off + minimal HUD) ===== -->
+    <section class="flight-hud" id="flight-hud" aria-label="In flight">
+      <div class="hud-top">
+        <div class="hud-route" id="hud-route"></div>
+        <div class="hud-sub"><span class="hud-tag" id="hud-tag"></span><span id="hud-sub"></span></div>
+      </div>
+      <div class="hud-bottom">
+        <p class="hud-clock" id="hud-clock">00:00</p>
+        <div class="hud-bar"><span id="hud-progress"></span></div>
+        <p class="hud-left" id="hud-left"></p>
+        <button class="link-btn" id="flight-end">Back to the gate (M1 preview)</button>
       </div>
     </section>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
+
+  <!-- ===== settings ===== -->
+  <dialog class="sheet-dialog" id="settings-dialog" aria-label="Settings">
+    <div class="dialog-body">
+      <header class="dialog-head"><h2>Settings</h2><button class="icon-btn round" data-close aria-label="Close">×</button></header>
+
+      <section class="set-group">
+        <h3>Home airport</h3>
+        <p class="home-current" id="home-current"></p>
+        <input type="search" id="home-search" placeholder="Search city, airport or IATA code" autocomplete="off" enterkeyhint="search">
+        <ul class="home-results" id="home-results"></ul>
+      </section>
+
+      <section class="set-group">
+        <h3>Route scale</h3>
+        <p class="set-help">Cruise speed is 800 km/h. A bigger scale lets far-away cities fit inside one session.</p>
+        <div class="segmented" role="group" aria-label="Route scale">
+          <button data-setting="routeScale" data-value="1">1×</button>
+          <button data-setting="routeScale" data-value="2">2×</button>
+          <button data-setting="routeScale" data-value="4">4×</button>
+        </div>
+      </section>
+
+      <section class="set-group">
+        <h3>Theme</h3>
+        <div class="segmented" role="group" aria-label="Theme">
+          <button data-setting="theme" data-value="auto">Auto</button>
+          <button data-setting="theme" data-value="night">Night</button>
+          <button data-setting="theme" data-value="day">Day</button>
+        </div>
+      </section>
+
+      <section class="set-group">
+        <h3>Quality</h3>
+        <div class="segmented" role="group" aria-label="Quality">
+          <button data-setting="quality" data-value="auto">Auto</button>
+          <button data-setting="quality" data-value="high">High</button>
+          <button data-setting="quality" data-value="medium">Medium</button>
+          <button data-setting="quality" data-value="low">Low</button>
+        </div>
+      </section>
+
+      <section class="set-group">
+        <h3>Feel</h3>
+        <label class="switch-row"><span>Sound</span><input type="checkbox" id="set-sound" role="switch"></label>
+        <label class="range-row"><span>Volume</span><input type="range" id="set-volume" min="0" max="1" step="0.05"></label>
+        <label class="switch-row"><span>Haptics</span><input type="checkbox" id="set-haptics" role="switch"></label>
+      </section>
+      <p class="fineprint">Contrail · airport data © OurAirports · Earth imagery NASA</p>
+    </div>
+  </dialog>
+
+  <!-- ===== tag editor ===== -->
+  <dialog class="sheet-dialog" id="tags-dialog" aria-label="Edit purpose tags">
+    <div class="dialog-body">
+      <header class="dialog-head"><h2>Purpose tags</h2><button class="icon-btn round" data-act="cancel" aria-label="Cancel">×</button></header>
+      <ul class="tag-edit-list"></ul>
+      <div class="dialog-actions">
+        <button class="btn ghost" data-act="add">Add tag</button>
+        <button class="btn primary" data-act="done">Save</button>
+      </div>
+    </div>
+  </dialog>
 </body>
 </html>

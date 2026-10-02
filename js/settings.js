@@ -13,6 +13,7 @@ const DEFAULTS = {
   quality: "auto",        // auto | high | medium | low
   units: "mi",            // mi | km (logbook)
   lastTagId: null,
+  lastDuration: 25,
 };
 
 export const TAG_COLORS = [
