@@ -1,0 +1,134 @@
+/* Contrail design tokens — "Night Cabin".
+   Every colour, font and motion value the UI uses lives here. */
+
+:root {
+  /* Typography
+     display: departure-board / ticket feel for codes + numbers
+     body:    calm, highly legible, full Vietnamese coverage
+     mono:    flight data */
+  --font-display: "Big Shoulders Display", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.75rem;
+  --fs-2xl: 2.5rem;
+  --fs-code: 3.25rem;      /* IATA codes on the pass */
+  --tracking-wide: 0.14em;
+
+  /* Night palette (default) */
+  --cabin-950: #05080f;
+  --cabin-900: #080d18;
+  --cabin-850: #0b1220;
+  --cabin-800: #101a2c;
+  --cabin-700: #17243b;
+  --cabin-600: #22334f;
+  --cabin-500: #33496c;
+
+  --amber-200: #ffe2b0;
+  --amber-300: #ffcd85;
+  --amber-400: #f4b15a;   /* reading light */
+  --amber-500: #d98f35;
+  --amber-glow: rgba(244, 177, 90, 0.32);
+
+  --paper-50: #fbf6ea;
+  --paper-100: #f4ecd9;   /* boarding pass stock */
+  --paper-200: #e8dcc0;
+  --paper-300: #d6c6a2;
+  --ink-900: #211c15;
+  --ink-700: #3d352a;
+  --ink-500: #6d6253;
+  --ink-red: #b8452f;
+
+  --signal: #ff6a55;      /* sparing alert colour */
+  --signal-soft: rgba(255, 106, 85, 0.16);
+  --calm: #8fd3c1;
+
+  /* Semantic roles (night) */
+  --bg: var(--cabin-900);
+  --bg-deep: var(--cabin-950);
+  --surface: rgba(16, 26, 44, 0.82);
+  --surface-solid: var(--cabin-800);
+  --surface-raised: var(--cabin-700);
+  --line: rgba(196, 214, 255, 0.11);
+  --line-strong: rgba(196, 214, 255, 0.22);
+  --text-hi: #eef1f8;
+  --text-mid: #aab4c8;
+  --text-low: #6f7a92;
+  --accent: var(--amber-400);
+  --accent-hi: var(--amber-300);
+  --accent-ink: #2a1a05;
+  --sky-top: #03060d;
+  --sky-bottom: #0f1d36;
+  --star: rgba(230, 236, 255, 0.75);
+
+  /* Globe */
+  --globe-atmosphere: #79a7ff;
+  --radar: #f4b15a;
+  --airport-lit: #ffe2b0;
+  --airport-dim: #55617a;
+
+  /* Shape + space */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 22px;
+  --r-pill: 999px;
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+  --gap-6: 32px;
+  --gutter: 16px;
+  --tap: 44px;            /* minimum touch target */
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-paper: 0 2px 4px rgba(0, 0, 0, 0.25), 0 18px 40px rgba(0, 0, 0, 0.45);
+
+  /* Motion — slow and deliberate */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 160ms;
+  --t-med: 320ms;
+  --t-slow: 640ms;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  color-scheme: dark;
+}
+
+/* Day palette: overcast morning above the clouds */
+:root[data-theme="day"] {
+  --bg: #dfe6ef;
+  --bg-deep: #cfd9e6;
+  --surface: rgba(250, 251, 253, 0.86);
+  --surface-solid: #f6f8fb;
+  --surface-raised: #ffffff;
+  --line: rgba(20, 38, 70, 0.12);
+  --line-strong: rgba(20, 38, 70, 0.24);
+  --text-hi: #13203a;
+  --text-mid: #43526e;
+  --text-low: #7a879e;
+  --accent: #c27417;
+  --accent-hi: #a35f0d;
+  --accent-ink: #fff8ec;
+  --amber-glow: rgba(194, 116, 23, 0.22);
+  --sky-top: #9fb7d6;
+  --sky-bottom: #e6edf5;
+  --star: rgba(255, 255, 255, 0);
+  --airport-dim: #8c97ab;
+  --shadow-1: 0 1px 2px rgba(20, 38, 70, 0.12), 0 8px 24px rgba(20, 38, 70, 0.14);
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 1ms;
+    --t-med: 1ms;
+    --t-slow: 1ms;
+  }
+}

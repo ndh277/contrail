@@ -1,0 +1,133 @@
+/* Contrail — base layout. Tokens live in tokens.css. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-deep);
+  color: var(--text-hi);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+img, svg { display: block; }
+
+.app {
+  position: relative;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "top" "globe" "sheet";
+  background:
+    radial-gradient(1.5px 1.5px at 12% 18%, var(--star), transparent 60%),
+    radial-gradient(1px 1px at 72% 9%, var(--star), transparent 60%),
+    radial-gradient(1px 1px at 88% 36%, var(--star), transparent 60%),
+    radial-gradient(1.5px 1.5px at 32% 44%, var(--star), transparent 60%),
+    radial-gradient(1px 1px at 58% 27%, var(--star), transparent 60%),
+    radial-gradient(1px 1px at 6% 61%, var(--star), transparent 60%),
+    linear-gradient(180deg, var(--sky-top), var(--sky-bottom));
+  overflow: hidden;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-3);
+  padding: calc(var(--safe-top) + 10px) var(--gutter) 6px;
+  z-index: 5;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand img { border-radius: 8px; }
+.brand-word {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  font-size: 1.05rem;
+}
+.topbar-home {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: var(--tap);
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  align-items: center;
+}
+.topbar-home .label { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-low); }
+.topbar-home .code { font-family: var(--font-display); font-weight: 800; font-size: 1.2rem; letter-spacing: 0.08em; color: var(--accent); }
+
+/* ---------- globe ---------- */
+.globe-wrap { grid-area: globe; position: relative; min-height: 0; }
+.globe {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity var(--t-slow) var(--ease-out);
+  touch-action: none;
+}
+.globe.is-ready { opacity: 1; }
+
+/* ---------- sheet ---------- */
+.sheet {
+  grid-area: sheet;
+  position: relative;
+  z-index: 4;
+  background: var(--surface);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border-top: 1px solid var(--line-strong);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  padding: 10px var(--gutter) calc(var(--safe-bottom) + 16px);
+  max-height: 62dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sheet-grip {
+  width: 40px; height: 4px; border-radius: 2px;
+  background: var(--line-strong);
+  margin: 0 auto 12px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ---------- M0 check card ---------- */
+.m0-title { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-xl); margin: 0 0 var(--gap-4); letter-spacing: 0.02em; }
+.m0-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-3) var(--gap-4); margin: 0; }
+.m0-stats div { border-top: 1px solid var(--line); padding-top: 6px; }
+.m0-stats dt { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-low); text-transform: uppercase; letter-spacing: 0.08em; }
+.m0-stats dd { margin: 2px 0 0; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.m0-note { color: var(--text-mid); font-size: var(--fs-sm); margin: var(--gap-4) 0 0; }
+
+/* ---------- tablet landscape: globe | controls ---------- */
+@media (orientation: landscape) and (min-width: 820px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr) minmax(380px, 34vw);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "top top" "globe sheet";
+  }
+  .sheet {
+    max-height: none;
+    border-radius: var(--r-lg) 0 0 0;
+    border-left: 1px solid var(--line-strong);
+  }
+}

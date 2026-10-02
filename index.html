@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Contrail</title>
+  <meta name="description" content="A personal focus timer that turns every session into a flight.">
+  <meta name="theme-color" content="#080d18">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="vendor/globe.gl-2.46.2.min.js" defer></script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <div id="app" class="app" data-screen="boot">
+    <header class="topbar">
+      <div class="brand" aria-label="Contrail">
+        <img src="assets/icons/icon.svg" alt="" width="28" height="28">
+        <span class="brand-word">CONTRAIL</span>
+      </div>
+      <div class="topbar-home" id="home-chip">
+        <span class="label">FROM</span>
+        <span class="code" id="home-code">HAN</span>
+      </div>
+    </header>
+
+    <section class="globe-wrap" aria-label="Globe">
+      <div id="globe" class="globe"></div>
+    </section>
+
+    <section class="sheet" id="sheet">
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <div class="m0-card">
+        <p class="eyebrow">Ground crew check · M0</p>
+        <h1 class="m0-title">Cabin systems online</h1>
+        <dl class="m0-stats">
+          <div><dt>Airports loaded</dt><dd id="stat-airports">…</dd></div>
+          <div><dt>Home</dt><dd id="stat-home">…</dd></div>
+          <div><dt>Sun overhead</dt><dd id="stat-sun">…</dd></div>
+          <div><dt>Quality tier</dt><dd id="stat-quality">…</dd></div>
+          <div><dt>Viewport</dt><dd id="stat-viewport">…</dd></div>
+          <div><dt>Offline cache</dt><dd id="stat-offline">…</dd></div>
+        </dl>
+        <p class="m0-note">The departure board opens in M1.</p>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
