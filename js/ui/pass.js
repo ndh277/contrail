@@ -169,6 +169,7 @@ export class BoardingPass {
     const spring = new Spring({
       stiffness: 260, damping: 15,
       onUpdate: (v) => apply(v, false),
+      onRest: (v) => { if (!v && !separated) stub.style.transform = ""; },   // hand back to CSS (hover lift)
     });
 
     const apply = (p, free, dx = 0) => {
@@ -205,7 +206,7 @@ export class BoardingPass {
         pull = Math.max(dy, Math.abs(dx) * 0.6, -20);
         apply(pull, false);
         const step = Math.floor((pull / TEAR_AT) * 6);
-        if (step > strainStep && pull > 0) { strainStep = step; sfx.strain(); haptic("tearTension"); }
+        if (step > strainStep && pull > 0) { strainStep = step; sfx.strain(); haptic(step >= 3 ? "tearRip" : "tearTension", { minGapMs: 90 }); }
         if (pull >= TEAR_AT) {
           separated = true;
           this.torn = true;
@@ -241,15 +242,17 @@ export class BoardingPass {
     stub.addEventListener("pointermove", move);
     stub.addEventListener("pointerup", up);
     stub.addEventListener("pointercancel", up);
+    // keyboard / shortcut path: the same commitment, without the drag
+    this.tearNow = () => {
+      if (this.torn || !this.$("#pass-paper").classList.contains("is-printed")) return;
+      this.torn = true;
+      sfx.tear(); haptic("stubTear");
+      pass.classList.add("is-torn");
+      stub.classList.add("is-free");
+      this.flyAway(stub, 0, 1400);
+    };
     stub.addEventListener("keydown", (e) => {
-      if ((e.key === "Enter" || e.key === " ") && !this.torn && this.$("#pass-paper").classList.contains("is-printed")) {
-        e.preventDefault();
-        this.torn = true;
-        sfx.tear(); haptic("stubTear");
-        pass.classList.add("is-torn");
-        stub.classList.add("is-free");
-        this.flyAway(stub, 0, 1400);
-      }
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.tearNow(); }
     });
   }
 

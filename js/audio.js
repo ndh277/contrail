@@ -71,10 +71,34 @@ function tone(t, { type = "sine", freq = 440, to, dur = 0.2, peak = 0.2, attack 
 
 export const sfx = {
   /** dial detent: a tiny dry tick */
-  tick() {
+  /** dial detent: a ratchet pawl dropping into a gear tooth (heavier on the quarter hours) */
+  tick(major = false) {
     if (!ok()) return;
     const t = ctx.currentTime;
-    noise(t, 0.012, { type: "highpass", freq: 4200, q: 0.7, peak: 0.08 });
+    noise(t, 0.008, { type: "highpass", freq: 3800, q: 0.7, peak: major ? 0.12 : 0.07 });
+    noise(t + 0.009, 0.014, { type: "bandpass", freq: major ? 1600 : 2600, q: 6, peak: major ? 0.16 : 0.08 });
+    tone(t + 0.009, { type: "triangle", freq: major ? 940 : 1480, to: major ? 860 : 1380, dur: 0.035, peak: major ? 0.04 : 0.02 });
+  },
+
+  /** a smaller tick for the radar passing a small airport */
+  radarTick() {
+    if (!ok()) return;
+    tone(ctx.currentTime, { freq: 2100, to: 1900, dur: 0.03, peak: 0.025 });
+  },
+
+  /** the embosser punching a letter into tape */
+  emboss() {
+    if (!ok()) return;
+    const t = ctx.currentTime;
+    noise(t, 0.02, { type: "bandpass", freq: 1900, q: 3, peak: 0.22 });
+    tone(t, { type: "square", freq: 190, to: 120, dur: 0.05, peak: 0.05 });
+    noise(t + 0.06, 0.02, { type: "highpass", freq: 3000, q: 1, peak: 0.08 });
+  },
+
+  /** seat LED coming on */
+  led() {
+    if (!ok()) return;
+    tone(ctx.currentTime + 0.12, { freq: 1760, dur: 0.12, peak: 0.03 });
   },
 
   /** radar reaches an airport: a soft sonar ping, pitch varies with distance */
@@ -143,12 +167,17 @@ export const sfx = {
   },
 
   /** passport stamp hitting paper on a desk */
+  /** a wooden stamp hitting paper on a desk: knock, body, a little rattle */
   thud() {
     if (!ok()) return;
     const t = ctx.currentTime;
     tone(t, { freq: 120, to: 42, dur: 0.22, peak: 0.55, attack: 0.002 });
     noise(t, 0.09, { type: "lowpass", freq: 700, q: 0.8, peak: 0.6, attack: 0.001 });
+    // the hollow wood body
+    noise(t + 0.002, 0.12, { type: "bandpass", freq: 420, q: 7, peak: 0.35, attack: 0.001 });
+    tone(t + 0.002, { type: "sine", freq: 245, to: 228, dur: 0.16, peak: 0.12, attack: 0.001 });
     noise(t + 0.004, 0.03, { type: "bandpass", freq: 2400, q: 1.5, peak: 0.18, attack: 0.001 });
+    noise(t + 0.07, 0.03, { type: "bandpass", freq: 900, q: 4, peak: 0.08 });          // handle rattle
   },
 
   /** tick while holding the abort button */

@@ -3,14 +3,21 @@
 import { settings } from "./settings.js";
 
 export const HAPTICS = {
-  dialDetent: 8,
-  radarHit: [12, 30, 12],
-  seatbelt: 20,
+  dialDetent: 6,                         // a light ratchet click every minute
+  dialMajor: [10, 18, 6],                // a heavier notch every 15 minutes
+  radarTick: 4,                          // tiny ticks as small airports come into range
+  radarHit: [12, 30, 12],                // a double pulse for hubs
+  seatbelt: [8, 50, 22],                 // tongue in, then the latch
+  seatLight: 6,
   tagSnap: 10,
+  emboss: [14, 10, 4],                   // the embosser punching one letter
   tearTension: 5,
+  tearRip: [6, 9, 8, 7, 10, 6, 12, 5],   // paper fibres giving way — a rustle, not a buzz
   stubTear: [40, 20, 60],
+  abortTick: 12,
   abortComplete: [30, 40, 30, 40, 80],
-  stampSlam: [90],
+  stampHover: 4,
+  stampSlam: [120],                      // the strongest moment in the app
   tap: 6,
 };
 

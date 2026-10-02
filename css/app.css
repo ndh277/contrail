@@ -152,14 +152,18 @@ h1, h2, h3, p { margin: 0; }
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: inset 0 1px 0 var(--glass-edge), 0 -20px 60px -20px rgba(0, 0, 0, 0.45);
   border-radius: 30px 30px 0 0;
-  padding: 8px var(--gutter) calc(var(--safe-bottom) + 12px);
-  max-height: 54dvh;
+  padding: 8px var(--gutter) calc(var(--sheet-offset, 0px) + var(--safe-bottom) + 12px);
+  height: calc(100dvh - var(--safe-top) - 66px);
+  transform: translateY(var(--sheet-offset, 0px));
+  will-change: transform;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
   transition: transform 0.7s var(--ease-ios), opacity var(--t-med);
 }
-.sheet-grip { width: 36px; height: 5px; border-radius: 3px; background: var(--fill-3); margin: 0 auto 8px; }
+.sheet-grip { width: 36px; height: 5px; border-radius: 3px; background: var(--fill-3); margin: 0 auto 8px; position: relative; touch-action: none; cursor: grab; }
+.sheet-grip::after { content: ""; position: absolute; inset: -14px -60px; }
+.readout { touch-action: none; }
 
 .readout { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--gap-3); }
 .duration { display: flex; align-items: baseline; gap: 6px; }
@@ -656,7 +660,7 @@ input[type="search"], input[type="text"] {
 @media (orientation: landscape) and (min-width: 820px) {
   .sheet {
     justify-self: end; align-self: stretch;
-    width: min(420px, 40vw); max-height: none;
+    width: min(420px, 40vw); max-height: none; height: auto; transform: none; padding-bottom: 14px;
     margin: calc(var(--safe-top) + 70px) 14px 14px;
     border-radius: 30px;
     box-shadow: var(--glass-shadow);
@@ -947,18 +951,26 @@ input[type="search"], input[type="text"] {
 /* ================= logbook / passport ================= */
 .logbook { align-items: stretch; }
 .passport-cover {
+  position: relative;
   display: flex; align-items: baseline; justify-content: space-between;
-  padding: 12px 16px; border-radius: 12px 12px 0 0;
-  background: linear-gradient(135deg, #12283a, #0d1d2c 60%, #0a1622);
-  color: #d9b56a; box-shadow: inset 0 0 0 1px rgba(217, 181, 106, 0.25);
+  padding: 14px 18px; border-radius: 14px 14px 0 0;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='l'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23l)' opacity='.55'/%3E%3C/svg%3E"),
+    radial-gradient(120% 140% at 30% 0%, #1d3a52, #0f2233 55%, #0a1824);
+  color: #e0bd72;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -8px 16px rgba(0, 0, 0, 0.25);
 }
+/* stitching */
+.passport-cover::after { content: ""; position: absolute; inset: 5px 5px 0; border: 1.5px dashed rgba(224, 189, 114, 0.35); border-bottom: 0; border-radius: 10px 10px 0 0; pointer-events: none; }
+.passport-cover span { text-shadow: 0 1px 0 rgba(255, 240, 200, 0.35), 0 -1px 0 rgba(0, 0, 0, 0.5); background: linear-gradient(180deg, #f3d895, #c89a45); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .passport-cover span { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.32em; }
 .passport-cover small { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.8; }
 .passport-wrap { perspective: 1800px; }
 .passport {
   position: relative; height: min(64dvh, 620px); min-height: 440px;
-  border-radius: 0 0 12px 12px;
-  background: #0d1d2c; padding: 6px 6px 8px;
+  border-radius: 0 0 14px 14px;
+  background: radial-gradient(120% 80% at 50% 0%, #142c40, #0b1a27); padding: 6px 6px 8px;
+  box-shadow: 0 24px 50px -16px rgba(0, 0, 0, 0.6);
   touch-action: pan-y;
 }
 .ppage {
@@ -1066,3 +1078,99 @@ input[type="search"], input[type="text"] {
 
 .hud-credit { display: none; }
 .app:is([data-view="chase"], [data-view="window"]) .hud-credit { display: inline; }
+
+/* the reading-light / seat LED: dark until the seat is yours, then a soft green glow */
+.seat-led { position: absolute; top: 15px; right: 6px; width: 5px; height: 5px; border-radius: 50%; background: rgba(0, 0, 0, 0.18); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.2); transition: background 0.3s 0.12s, box-shadow 0.3s 0.12s; }
+.seat-first .seat-led { top: 20px; right: 10px; }
+.seat.is-mine .seat-led { background: #5dffa8; box-shadow: 0 0 6px 2px rgba(93, 255, 168, 0.65); }
+
+/* ================= fluid morphing between screens (View Transitions) ================= */
+::view-transition-group(*) { animation-duration: 0.62s; animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.38s; }
+::view-transition-old(*), ::view-transition-new(*) { height: 100%; object-fit: cover; }
+.vt .screen, .vt .sheet, .vt .topbar, .vt .flight-hud { transition: none !important; }
+.app[data-screen="departure"] #dest-card { view-transition-name: route-card; }
+.app[data-screen="checkin"] #checkin .screen-head { view-transition-name: route-card; }
+.app[data-screen="checkin"] #print-btn { view-transition-name: boarding; }
+.app[data-screen="pass"] #pass-paper { view-transition-name: boarding; }
+.app[data-screen="pass"] #pass-paper .pass-main { view-transition-name: ticket; }
+.app[data-screen="flight"] .hud-top { view-transition-name: ticket; }
+.app[data-screen="flight"] .hud-bottom { view-transition-name: flight-card; }
+.app[data-screen="landing"] .landing-card { view-transition-name: flight-card; }
+.app[data-screen="departure"] #logbook-btn { view-transition-name: passport; }
+.app[data-screen="logbook"] .passport-cover { view-transition-name: passport; }
+
+/* ================= immersive in flight: the HUD steps aside ================= */
+.hud-top, .hud-bottom { transition: transform 0.7s var(--ease-ios), opacity 0.5s; }
+.app.hud-idle .hud-top { transform: translateY(calc(-100% - 30px)); opacity: 0; }
+.app.hud-idle .hud-bottom { transform: translateY(calc(100% + 30px)); opacity: 0; pointer-events: none; }
+.hud-mini {
+  position: absolute; left: 50%; bottom: calc(var(--safe-bottom) + 18px);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 60%), rgba(10, 14, 26, 0.5);
+  backdrop-filter: blur(24px) saturate(170%); -webkit-backdrop-filter: blur(24px) saturate(170%);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 14px 34px rgba(0, 0, 0, 0.4);
+  color: #eef1f8;
+  transform: translate(-50%, 140%); opacity: 0;
+  transition: transform 0.7s var(--ease-ios), opacity 0.4s;
+}
+.app.hud-idle .hud-mini { transform: translate(-50%, 0); opacity: 1; }
+.hud-mini b { font-family: var(--font-mono); font-weight: 500; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.hud-mini span:last-child { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.08em; color: var(--amber-300); }
+.hud-mini-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--amber-400); box-shadow: 0 0 8px var(--amber-400); animation: live 2.4s ease-in-out infinite; }
+
+/* ================= the embosser: tag names punched into label tape ================= */
+.tape {
+  flex: 1; min-width: 0; display: flex; align-items: center;
+  height: 40px; padding: 0 12px; border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 40%, rgba(0, 0, 0, 0.18)),
+    color-mix(in srgb, var(--tag) 55%, #10131b);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.tape input {
+  width: 100%; min-height: 0; height: 100%; padding: 0; border: 0; background: none;
+  font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; letter-spacing: 0.16em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.25);
+  caret-color: #fff; outline: none;
+}
+.tape:focus-within { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 2px var(--accent), 0 2px 6px rgba(0, 0, 0, 0.3); }
+.tape.punch { animation: punch 160ms var(--ease-out); }
+@keyframes punch { 30% { transform: translateY(1.5px) scaleY(0.97); } }
+
+/* page curl: a shade sweeps across the turning page and a crease along its spine */
+.ppage::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0) 22%, rgba(255, 255, 255, 0.25) 60%, rgba(0, 0, 0, 0.12));
+}
+.ppage.is-turning::after { animation: curl 0.75s cubic-bezier(.45, .05, .25, 1); }
+@keyframes curl { 0% { opacity: 0; } 45% { opacity: 1; } 100% { opacity: 0; } }
+.passport.is-dragging .ppage::after { opacity: 0.6; }
+
+/* heatmap as airfield signal lights */
+.heatmap .l3 { filter: drop-shadow(0 0 1px var(--heat, #d98f35)); }
+.heatmap .l4 { filter: drop-shadow(0 0 2px var(--heat, #d98f35)) drop-shadow(0 0 4px var(--heat, #d98f35)); }
+.heat-legend i { border-radius: 50%; }
+
+/* desktop: the stub lifts at the corner when the mouse finds it — "this tears" */
+@media (hover: hover) and (pointer: fine) {
+  .pass-stub { transition: transform 0.35s var(--ease-ios); }
+  .pass-stub:not(.is-held):not(.is-free):hover { transform: translateY(3px) rotate(-0.8deg); }
+  .pass-stub::after {
+    content: ""; position: absolute; right: 0; bottom: 0; width: 0; height: 0;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.18) 0 50%, var(--paper-200) 50%);
+    border-radius: 0 0 14px 0; box-shadow: -2px -2px 6px rgba(0, 0, 0, 0.15);
+    transition: width 0.35s var(--ease-ios), height 0.35s var(--ease-ios);
+  }
+  .pass-stub:not(.is-free):hover::after { width: 26px; height: 26px; }
+}
+.shortcuts { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(2, 4, 9, 0.5); backdrop-filter: blur(4px); }
+.shortcuts[hidden] { display: none; }
+.shortcuts-card { width: min(420px, 92vw); padding: 22px 22px 16px; border-radius: 26px; background: var(--glass-sheen), var(--glass-strong); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); box-shadow: var(--glass-shadow); color: var(--text-hi); }
+.shortcuts-card h2 { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.04em; margin-bottom: 10px; }
+.shortcuts-card dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 0; font-size: var(--fs-sm); }
+.shortcuts-card dt { text-align: right; }
+.shortcuts-card kbd { font-family: var(--font-mono); font-size: 0.75rem; padding: 2px 7px; border-radius: 6px; background: var(--fill-2); box-shadow: inset 0 -1px 0 var(--glass-edge); }
+.shortcuts-card dd { margin: 0; color: var(--text-mid); }

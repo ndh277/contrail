@@ -91,6 +91,16 @@ boarding pass → tear the stub to take off → fly across a 3D globe → land, 
 - **Motion:** slow and deliberate. Use spring physics for physical objects (stubs, tags, stamps). Respect `prefers-reduced-motion`.
 - All icons, illustrations and the app icon are drawn from scratch, as SVG or canvas.
 
+### 5.1 Design principles (added by Henry after M2)
+
+Keep these in every screen; they come from Henry's design notes:
+- **A ritual, not a timer.** Every step speaks one language (gate, boarding, ETA, cabin, passport, nautical miles). Selective skeuomorphism (pass, tags, passport, stamps) for the ceremony, minimalism once focus starts.
+- **Physics-based motion.** Springs with momentum and a little overshoot for anything you touch (dial, sheet, tags, stub, stamp). Nothing moves linearly.
+- **Fluid morphing.** Screens hand over shared elements instead of fading (View Transitions: destination card → check-in, print button → pass, pass → in-flight card, flight card → landing).
+- **Multisensory sync.** Every tactile moment has a matched sound and haptic rhythm (ratchet dial, radar ticks vs. hub blips, paper rustle on the tear, seatbelt + seat LED, embosser, wooden stamp thud).
+- **Adaptive by context.** Phone = immersive and personal (bottom sheets with detents in the thumb zone; the HUD steps aside in flight). Tablet = cockpit dashboard (panel + full globe). Laptop = quiet companion (always-on-top mini window, keyboard shortcuts, hover affordances, countdown in the tab title).
+- Web limits to remember: no OS app blocking / Focus Mode, no menu-bar icon, vibration timing only. Cross-device handoff belongs to M4 (Firestore).
+
 ## 6. Haptics (`navigator.vibrate`, patterns in ms)
 
 | Moment | Pattern (starting point; tune on the S24 Ultra) |

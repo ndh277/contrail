@@ -12,6 +12,7 @@ import {
 import { CHANNELS, levels, setLevel, startAmbience, stopAmbience, ambienceOn } from "../ambience.js";
 import { WindowView } from "./window-view.js";
 import { toast } from "./common.js";
+import { Companion } from "./companion.js";
 
 const CLIMB_SECONDS = 9;
 const TAKEOFF_MOVE_MS = 6500;
@@ -47,8 +48,16 @@ export class Flight {
     document.getElementById("paused-resume").addEventListener("click", () => this.togglePause());
     this.setupAbort();
     this.setupMixer();
+    this.companion = new Companion();
+    const mini = this.$("#btn-mini");
+    mini.hidden = !(this.companion.pipSupported && matchMedia("(pointer: fine)").matches);
+    mini.addEventListener("click", () => { sfx.tap(); this.companion.win ? this.companion.closeMini() : this.companion.openMini(); });
 
     document.addEventListener("visibilitychange", () => this.visibility());
+    // immersive: the HUD slides away after a few quiet seconds; any touch brings it back
+    this.lastActivity = performance.now();
+    const wake = () => { this.lastActivity = performance.now(); if (this.idle) this.setIdle(false); };
+    for (const ev of ["pointerdown", "keydown", "wheel"]) addEventListener(ev, wake, { passive: true, capture: true });
     addEventListener("pagehide", () => this.persist(true));
     view.onFrame((t, dt) => this.frame(t, dt));
   }
@@ -92,6 +101,7 @@ export class Flight {
     this.$("#hud-track-from").textContent = o.iata;
     this.$("#hud-track-to").textContent = d.iata;
     this.$("#hud-sub").textContent = `${f.flightNo} · ${f.seat} · ${f.tag.name}`;
+    this.$("#hud-mini-dest").textContent = `→ ${d.iata}`;
     this.$("#hud-tag").style.setProperty("--tag", f.tag.color);
     this.$("#hud-class").textContent = { first: "First", business: "Business", economy: "Economy" }[f.cls];
     this.renderPaused();
@@ -108,6 +118,8 @@ export class Flight {
         setTimeout(() => { if (this.f === f) v.pointOfView(wide, 4200); }, 1700);
       }
       sfx.takeoff(CLIMB_SECONDS);
+      // on a laptop the flight tucks itself into a small always-on-top window
+      if (this.companion.isDesktop) this.companion.openMini();
     }
 
     if (f.cls === "first") {
@@ -175,11 +187,15 @@ export class Flight {
 
     if (!this.lastLabels || t - this.lastLabels > 500) { this.lastLabels = t; this.mapLabels(here, p); }
 
+    const quiet = t - this.lastActivity > 6000 && !document.getElementById("mixer").classList.contains("is-open") && !this.landing && !this.app.classList.contains("is-paused");
+    if (quiet !== !!this.idle) this.setIdle(quiet);
+
     if (this.lastHud && t - this.lastHud < 200) return;
     this.lastHud = t;
     const remaining = f.durationMin * 60000 - flownMs(f, tNow);
     const text = clockText(remaining);
     this.$("#hud-clock").textContent = text;
+    this.$("#hud-mini-clock").textContent = text;
     document.getElementById("shade-clock").textContent = text;
     this.$("#hud-progress").style.transform = `scaleX(${p})`;
     this.$("#hud-craft").style.left = `${p * 100}%`;
@@ -200,6 +216,13 @@ export class Flight {
     const phase = f.pausedAt ? "Holding" : this.phase(p, elapsed);
     const ph = this.$("#hud-phase");
     if (ph.textContent !== phase) ph.textContent = phase;
+    if (!this.lastCompanion || t - this.lastCompanion > 1000) {
+      this.lastCompanion = t;
+      this.companion.update({
+        clock: text, progress: p, from: f.origin.iata, to: f.dest.iata, phase, flightNo: f.flightNo,
+        eta: eta.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), minutesLeft: Math.ceil(remaining / 60000),
+      });
+    }
   }
 
   /** Origin, destination and the flight itself, labelled on the map. */
@@ -306,10 +329,16 @@ export class Flight {
     }, 6000);
   }
 
+  setIdle(on) {
+    this.idle = on;
+    this.app.classList.toggle("hud-idle", on);
+    this.layoutOffset();
+  }
+
   /** Keep the globe centred in the space the HUD leaves free. */
   layoutOffset() {
     const v = this.view;
-    if (this.mode === "window" && this.windowLive) { v.setCenterOffset(0, 0); return; }
+    if ((this.mode === "window" && this.windowLive) || this.idle) { v.setCenterOffset(0, 0); return; }
     const top = this.root.querySelector(".hud-top")?.getBoundingClientRect();
     const bottom = this.root.querySelector(".hud-bottom")?.getBoundingClientRect();
     if (!top || !bottom || !bottom.height) return;
@@ -523,16 +552,18 @@ export class Flight {
       }
       raf = requestAnimationFrame(step);
     };
-    btn.addEventListener("pointerdown", (e) => {
-      if (this.ended) return;
-      btn.setPointerCapture(e.pointerId);
+    const begin = () => {
+      if (this.ended || t0) return;
       t0 = performance.now(); ticks = 0; aborted = false;
       ring.style.transition = "none";
       btn.classList.add("is-holding");
       hint().textContent = "3…";
       sfx.holdTick(0);
       raf = requestAnimationFrame(step);
-    });
+    };
+    this.abortStart = begin;
+    this.abortCancel = cancel;
+    btn.addEventListener("pointerdown", (e) => { btn.setPointerCapture(e.pointerId); begin(); });
     btn.addEventListener("pointerup", cancel);
     btn.addEventListener("pointercancel", cancel);
     btn.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -553,6 +584,7 @@ export class Flight {
     this.ended = true;
     const f = this.f;
     clearInterval(this.beat);
+    this.companion.reset();
     stopAmbience(1.2);
     this.wakeLock?.release?.().catch?.(() => {});
     this.wakeLock = null;

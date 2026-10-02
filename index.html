@@ -176,6 +176,7 @@
         </div>
         <div class="hud-chips"><span class="hud-tag" id="hud-tag"></span><span id="hud-sub"></span></div>
       </div>
+      <div class="hud-mini" aria-hidden="true"><span class="hud-mini-dot"></span><b id="hud-mini-clock">00:00</b><span id="hud-mini-dest"></span></div>
       <div class="hud-bottom">
         <p class="eyebrow hud-phase" id="hud-phase">Taking off</p>
         <p class="hud-clock" id="hud-clock">00:00</p>
@@ -213,6 +214,10 @@
             <button class="round-btn" id="btn-mixer" aria-pressed="false" aria-label="Ambience">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5v3M8 7.5v9M12 4.5v15M16 8v8M20 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
               <span class="lbl">Sound</span>
+            </button>
+            <button class="round-btn" id="btn-mini" aria-label="Open the mini window" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="11.5" y="11" width="7" height="5.5" rx="1.5" fill="currentColor"/></svg>
+              <span class="lbl">Mini</span>
             </button>
             <button class="round-btn" id="btn-shade" aria-label="Close the shade">
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6.6 6.2h10.8V13H6.6z" fill="currentColor"/><path d="M10.5 13h3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
@@ -300,6 +305,24 @@
     </section>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="shortcuts" id="shortcuts" hidden>
+      <div class="shortcuts-card">
+        <h2>Keyboard</h2>
+        <dl>
+          <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Turn the dial a minute</dd>
+          <dt><kbd>Enter</kbd></dt><dd>Check in / print the pass</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>Tear the stub and take off</dd>
+          <dt><kbd>Space</kbd></dt><dd>Pause / resume (Economy)</dd>
+          <dt><kbd>G</kbd> <kbd>D</kbd> <kbd>W</kbd></dt><dd>Globe · 3D · Window view</dd>
+          <dt><kbd>S</kbd></dt><dd>Close / raise the shade</dd>
+          <dt><kbd>M</kbd></dt><dd>Ambience mixer</dd>
+          <dt><kbd>P</kbd></dt><dd>Mini window (always on top)</dd>
+          <dt>hold <kbd>Esc</kbd></dt><dd>Abort the flight (3 s)</dd>
+          <dt><kbd>L</kbd></dt><dd>Logbook</dd>
+          <dt><kbd>?</kbd></dt><dd>This list</dd>
+        </dl>
+      </div>
+    </div>
   </div>
 
   <!-- ===== settings ===== -->

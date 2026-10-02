@@ -11,6 +11,11 @@ import { esc, toast } from "./common.js";
 
 const STAMPS_PER_PAGE = 6;
 const LOG_PER_PAGE = 7;
+const UNITS = {
+  nm: { name: "Nautical miles", km: 1.852 },
+  mi: { name: "Miles", km: KM_PER_MILE },
+  km: { name: "Kilometres", km: 1 },
+};
 const STATUS = { landed: "Landed", diverted: "Diverted", aborted: "Cancelled" };
 
 export class Logbook {
@@ -73,8 +78,8 @@ export class Logbook {
 
   identityPage(list) {
     const s = stats(list);
-    const km = settings.units === "km";
-    const dist = km ? s.km : s.km / KM_PER_MILE;
+    const unit = UNITS[settings.units] || UNITS.mi;
+    const dist = s.km / unit.km;
     return `
       <header class="phead"><span class="ptitle">Holder</span><span class="pcode">P&lt;VNM</span></header>
       <div class="holder">
@@ -90,7 +95,7 @@ export class Logbook {
       </div>
       <dl class="pstats">
         <div><dt>Focus hours</dt><dd>${(s.minutes / 60).toFixed(s.minutes < 600 ? 1 : 0)}</dd></div>
-        <div><dt><button class="unit-toggle" data-act="units" aria-label="Switch miles and kilometres">${km ? "Kilometres" : "Miles"} ↔</button></dt><dd>${Math.round(dist).toLocaleString("en-US")}</dd></div>
+        <div><dt><button class="unit-toggle" data-act="units" aria-label="Change distance unit">${unit.name} ↔</button></dt><dd>${Math.round(dist).toLocaleString("en-US")}</dd></div>
         <div><dt>Flights</dt><dd>${s.flights}</dd></div>
         <div><dt>Cities</dt><dd>${s.cities}</dd></div>
         <div><dt>Streak</dt><dd>${s.streak}<small> day${s.streak === 1 ? "" : "s"}</small></dd></div>
@@ -118,7 +123,7 @@ export class Logbook {
       const m = byDay.get(d);
       const lvl = m <= 0 ? 0 : m < 25 ? 1 : m < 60 ? 2 : m < 120 ? 3 : 4;
       const label = `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${Math.round(m)} min`;
-      cells += `<rect x="${col * step}" y="${12 + row * step}" width="${cell}" height="${cell}" rx="1.4" class="l${lvl}" data-label="${label}"/>`;
+      cells += `<rect x="${col * step}" y="${12 + row * step}" width="${cell}" height="${cell}" rx="${cell / 2}" class="l${lvl}" data-label="${label}"/>`;
       if (d.getMonth() !== lastMonth && row === 0 && col - lastLabelCol >= 3) {
         lastMonth = d.getMonth();
         lastLabelCol = col;
@@ -164,7 +169,8 @@ export class Logbook {
     const b = e.target.closest("[data-act]");
     if (b) {
       if (b.dataset.act === "units") {
-        updateSettings({ units: settings.units === "km" ? "mi" : "km" }).then(() => this.render());
+        const order = ["nm", "mi", "km"];
+        updateSettings({ units: order[(order.indexOf(settings.units) + 1) % order.length] }).then(() => this.render());
         sfx.tap();
       } else if (b.dataset.act === "tag") {
         this.tagFilter = b.dataset.tag || null;
@@ -185,6 +191,10 @@ export class Logbook {
   turn(dir) {
     const next = this.page + dir;
     if (next < 0 || next >= this.count) return;
+    // the page that moves gets a curl shade while it turns
+    const moving = this.book.querySelector(`.ppage[data-i="${dir > 0 ? this.page : next}"]`);
+    moving?.classList.remove("is-turning"); void moving?.offsetWidth; moving?.classList.add("is-turning");
+    setTimeout(() => moving?.classList.remove("is-turning"), 800);
     this.page = next;
     this.layout();
     sfx.strain();

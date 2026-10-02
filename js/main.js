@@ -11,11 +11,13 @@ import { Landing } from "./ui/landing.js";
 import { Logbook } from "./ui/logbook.js";
 import { getActive, visitedSet } from "./flights.js";
 import { updateSettings } from "./settings.js";
+import { BottomSheet } from "./ui/sheet.js";
 
 const $ = (id) => document.getElementById(id);
 const app = $("app");
 
 let globeView = null;
+let sheet = null;
 
 function applyTheme() {
   const theme = effectiveTheme();
@@ -29,8 +31,21 @@ function registerServiceWorker() {
   navigator.serviceWorker.register("sw.js").catch((err) => console.warn("SW registration failed", err));
 }
 
+/**
+ * Switch screens. Where the browser supports View Transitions, shared pieces morph
+ * from one screen into the next (destination card → check-in header, print button →
+ * boarding pass, pass → in-flight card…) instead of fading.
+ */
 function show(screen) {
-  app.dataset.screen = screen;
+  const prev = app.dataset.screen;
+  const apply = () => { app.dataset.screen = screen; };
+  const morph = document.startViewTransition && prev !== "boot" && prev !== screen &&
+    !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (morph) {
+    document.documentElement.classList.add("vt");
+    const vt = document.startViewTransition(apply);
+    vt.finished.finally(() => document.documentElement.classList.remove("vt"));
+  } else apply();
   requestAnimationFrame(updateGlobeOffset);
 }
 
@@ -50,7 +65,7 @@ function updateGlobeOffset() {
     const used = panel ? W - panel.offsetLeft : 0;
     view.setCenterOffset(used / 2, -top / 2, { w: W - used - 24, h: H - top - 20 });
   } else if (scr === "departure") {
-    const sheetTop = $("departure").offsetTop;
+    const sheetTop = H - (sheet ? sheet.visible : $("departure").offsetHeight);
     const visH = sheetTop - top;
     view.setCenterOffset(0, (H - sheetTop - top) / 2, { w: W, h: visH });
   } else {
@@ -73,6 +88,18 @@ async function boot() {
   globeView = view;
   applyTheme();
   addEventListener("resize", () => requestAnimationFrame(updateGlobeOffset));
+  // the departure sheet: peek (time + dial), half, full
+  const depEl = $("departure");
+  sheet = new BottomSheet(depEl, {
+    handles: [depEl.querySelector(".sheet-grip"), depEl.querySelector(".readout")],
+    detents: () => {
+      const dial = $("dial");
+      const peek = dial.offsetTop + dial.offsetHeight + 18;
+      return [peek, Math.round(innerHeight * 0.54), depEl.offsetHeight];
+    },
+    onChange: () => { if (app.dataset.screen === "departure") updateGlobeOffset(); },
+  });
+  requestAnimationFrame(() => sheet.snap(1, false));
   new ResizeObserver(() => updateGlobeOffset()).observe($("departure"));
   view.pointOfView({ lat: home.lat, lng: home.lng, altitude: 2.4 }, 0);
 
@@ -149,6 +176,46 @@ async function boot() {
     if (active) { show("flight"); flightView.resume(active); }
     else show("departure");
   });
+
+  // ---- keyboard: the desktop way through every step of the flight ----
+  addEventListener("keydown", (e) => {
+    const scr = app.dataset.screen;
+    const typing = e.target.matches("input, textarea, [contenteditable]");
+    const dlgOpen = document.querySelector("dialog[open]");
+    if (typing || dlgOpen) return;
+    const k = e.key;
+    const cmd = e.ctrlKey || e.metaKey;
+    const help = $("shortcuts");
+    if (k === "?") { help.hidden = !help.hidden; return; }
+    if (!help.hidden && k === "Escape") { help.hidden = true; return; }
+    if (scr === "departure") {
+      if (k === "Enter" && departure.selected >= 0) { e.preventDefault(); departure.checkIn(); }
+      else if (k === "l" || k === "L") $("logbook-btn").click();
+      else if (k === "ArrowLeft" || k === "ArrowRight") { if (document.activeElement !== $("dial")) { e.preventDefault(); departure.dial.nudge(k === "ArrowRight" ? 1 : -1); } }
+    } else if (scr === "checkin") {
+      if (k === "Enter") { e.preventDefault(); checkin.print(); }
+      else if (k === "Escape") show("departure");
+    } else if (scr === "pass") {
+      if (k === "Enter" && cmd) { e.preventDefault(); pass.tearNow?.(); }
+      else if (k === "Escape") { pass.close(); show("checkin"); }
+    } else if (scr === "flight") {
+      if (k === " ") { e.preventDefault(); flightView.togglePause(); }
+      else if (k === "g" || k === "G") flightView.setMode("globe");
+      else if (k === "d" || k === "D") flightView.setMode("chase");
+      else if (k === "w" || k === "W") flightView.setMode("window");
+      else if (k === "s" || k === "S") app.classList.contains("shade-down") ? flightView.openShade() : flightView.closeShade();
+      else if (k === "m" || k === "M") flightView.toggleMixer();
+      else if (k === "p" || k === "P") flightView.companion.win ? flightView.companion.closeMini() : flightView.companion.openMini();
+      else if (k === "Escape" && !e.repeat) flightView.abortStart?.();
+    } else if (scr === "landing") {
+      if (k === "Enter") document.querySelector("#landing-next .btn.primary")?.click();
+    } else if (scr === "logbook") {
+      if (k === "Escape") show("departure");
+      else if (k === "ArrowRight") logbook.turn(1);
+      else if (k === "ArrowLeft") logbook.turn(-1);
+    }
+  });
+  addEventListener("keyup", (e) => { if (e.key === "Escape" && app.dataset.screen === "flight") flightView.abortCancel?.(); });
 
   window.contrail = { view, departure, checkin, pass, flightView, landing, logbook, settings };
 }

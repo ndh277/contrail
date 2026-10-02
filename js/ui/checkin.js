@@ -117,7 +117,7 @@ export class CheckIn {
           const taken = zone.cls === "first" ? false : r() < (zone.cls === "business" ? 0.3 : 0.3);
           const id = `${row}${letter}`;
           if (taken) return `<span class="seat seat-${zone.cls} is-taken" role="img" aria-label="Seat ${id} taken"><span class="pax"></span></span>`;
-          return `<button class="seat seat-${zone.cls}" data-seat="${id}" data-cls="${zone.cls}" aria-label="Seat ${id}, ${CLASSES[zone.cls].name}"><span class="seat-id">${id}</span></button>`;
+          return `<button class="seat seat-${zone.cls}" data-seat="${id}" data-cls="${zone.cls}" aria-label="Seat ${id}, ${CLASSES[zone.cls].name}"><span class="seat-led" aria-hidden="true"></span><span class="seat-id">${id}</span></button>`;
         }).join("");
         const wing = zone.wingAfter === row ? `<div class="wing-row" aria-hidden="true"><span class="exit l">EXIT</span><span class="exit r">EXIT</span></div>` : "";
         return `<div class="seat-row">${seats}</div>${wing}`;
@@ -196,6 +196,7 @@ export class CheckIn {
     btn.classList.remove("buckle"); void btn.offsetWidth; btn.classList.add("buckle");
     this.seat = { id: btn.dataset.seat, cls: btn.dataset.cls };
     sfx.seatbelt();
+    sfx.led();
     haptic("seatbelt");
     this.renderInfo();
   }
@@ -282,7 +283,15 @@ export class CheckIn {
       this.renderEditor(b.dataset.act === "add" ? list.length - 1 : null);
     });
     dlg.addEventListener("input", (e) => {
-      if (e.target.matches("input[data-i]")) this.draft[+e.target.dataset.i].name = e.target.value.slice(0, 18);
+      if (!e.target.matches("input[data-i]")) return;
+      this.draft[+e.target.dataset.i].name = e.target.value.slice(0, 18);
+      // the embosser: every letter is punched into the tape
+      if (e.inputType?.startsWith("insert")) {
+        sfx.emboss();
+        haptic("emboss");
+        const tape = e.target.closest(".tape");
+        tape.classList.remove("punch"); void tape.offsetWidth; tape.classList.add("punch");
+      }
     });
   }
 
@@ -299,7 +308,7 @@ export class CheckIn {
       <li class="tag-edit" style="--tag:${esc(t.color)}">
         <div class="tag-edit-row">
           <span class="tag-dot" aria-hidden="true"></span>
-          <input type="text" value="${esc(t.name)}" data-i="${i}" maxlength="18" aria-label="Tag name">
+          <label class="tape" style="--tag:${esc(t.color)}"><input type="text" value="${esc(t.name)}" data-i="${i}" maxlength="18" aria-label="Tag name" autocapitalize="characters" spellcheck="false"></label>
           <button class="icon-btn" data-act="up" data-i="${i}" aria-label="Move up" ${i === 0 ? "disabled" : ""}>↑</button>
           <button class="icon-btn" data-act="down" data-i="${i}" aria-label="Move down" ${i === list.length - 1 ? "disabled" : ""}>↓</button>
           <button class="icon-btn danger" data-act="del" data-i="${i}" aria-label="Delete tag">×</button>

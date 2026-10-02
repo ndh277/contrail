@@ -40,7 +40,7 @@ export class Departure {
     this.dial = new TimeDial(this.$("#dial"), {
       min: MIN_MIN, max: MAX_MIN, value: settings.lastDuration || 25,
       onChange: (v) => this.dialChanged(v),
-      onDetent: () => { haptic("dialDetent"); sfx.tick(); },
+      onDetent: (d) => { const major = d % 15 === 0; haptic(major ? "dialMajor" : "dialDetent"); sfx.tick(major); },
       onSettle: () => this.refreshSuggestions(true),
       onGrab: () => { this.followSince = performance.now(); if (this.selected >= 0) this.select(-1); },
     });
@@ -134,11 +134,20 @@ export class Departure {
         const i = order[n - 1 - j];
         if (i !== this.home.i && airports[i].large) this.view.ping(airports[i].lat, airports[i].lng);
       }
+      // hubs get a sonar blip and a double pulse; small fields a tiny tick
+      let hub = false;
+      for (let k = this.litCount; k < n; k++) if (order[k] !== this.home.i && airports[order[k]].large) hub = true;
       const newest = order[n - 1];
-      if (newest !== this.home.i && t - this.lastBlip > 70) {
-        this.lastBlip = t;
-        sfx.blip(1.25 - Math.min(0.5, this.range / 8000));
-        haptic("radarHit", { minGapMs: 120 });
+      if (newest !== this.home.i) {
+        if (hub && t - this.lastBlip > 90) {
+          this.lastBlip = t;
+          sfx.blip(1.25 - Math.min(0.5, this.range / 8000));
+          haptic("radarHit", { minGapMs: 120 });
+        } else if (!hub && t - (this.lastTick || 0) > 45) {
+          this.lastTick = t;
+          sfx.radarTick();
+          haptic("radarTick", { minGapMs: 60 });
+        }
       }
     }
     this.litCount = n;
