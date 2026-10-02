@@ -268,68 +268,157 @@ export class CheckIn {
     this.renderInfo();
   }
 
-  /* ---------- tag editor ---------- */
+  /* ---------- tag editor: a list page and a detail page, like iOS Settings ---------- */
 
   setupEditor() {
     const dlg = document.getElementById("tags-dialog");
     this.dlg = dlg;
+    this.nav = dlg.querySelector(".tags-nav");
+    this.previewSpring = new Spring({ stiffness: 90, damping: 5, onUpdate: (v) => dlg.querySelector("#tag-preview")?.style.setProperty("--swing", `${v}deg`) });
     dlg.addEventListener("click", (e) => {
+      if (e.target === dlg) { this.closeEditor(); return; }
+      const sw = e.target.closest("button[data-color]");
+      if (sw) { this.setColor(sw.dataset.color); return; }
+      const row = e.target.closest(".tag-row");
+      if (row && !e.target.closest(".drag-handle")) { this.openDetail(+row.dataset.i); return; }
       const b = e.target.closest("button[data-act]");
-      if (!b) { if (e.target === dlg) this.closeEditor(); return; }
-      const i = +b.dataset.i;
-      const list = this.draft;
+      if (!b) return;
       switch (b.dataset.act) {
-        case "up": if (i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]]; break;
-        case "down": if (i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]]; break;
-        case "del":
-          if (list.length <= 1) { toast("Keep at least one tag."); return; }
-          list.splice(i, 1); break;
-        case "color": list[i].color = b.dataset.color; break;
-        case "add": list.push({ id: `t${Date.now().toString(36)}`, name: "New tag", color: TAG_COLORS[list.length % TAG_COLORS.length] }); break;
-        case "done": this.saveEditor(); return;
-        case "cancel": this.closeEditor(); return;
-        default: return;
-      }
-      sfx.tap();
-      this.renderEditor(b.dataset.act === "add" ? list.length - 1 : null);
-    });
-    dlg.addEventListener("input", (e) => {
-      if (!e.target.matches("input[data-i]")) return;
-      this.draft[+e.target.dataset.i].name = e.target.value.slice(0, 18);
-      // the embosser: every letter is punched into the tape
-      if (e.inputType?.startsWith("insert")) {
-        sfx.emboss();
-        haptic("emboss");
-        const tape = e.target.closest(".tape");
-        tape.classList.remove("punch"); void tape.offsetWidth; tape.classList.add("punch");
+        case "add": {
+          const used = new Set(this.draft.map((t) => t.color));
+          const color = TAG_COLORS.find((c) => !used.has(c)) || TAG_COLORS[this.draft.length % TAG_COLORS.length];
+          this.draft.push({ id: `t${Date.now().toString(36)}`, name: "", color });
+          this.openDetail(this.draft.length - 1, true);
+          break;
+        }
+        case "back": this.showList(); break;
+        case "del": {
+          if (this.draft.length <= 1) { toast("Keep at least one tag."); return; }
+          this.draft.splice(this.editing, 1);
+          haptic("tap");
+          this.showList();
+          break;
+        }
+        case "done": this.saveEditor(); break;
+        case "cancel": this.closeEditor(); break;
       }
     });
+    const name = dlg.querySelector("#tag-name");
+    name.addEventListener("input", (e) => {
+      const t = this.draft[this.editing];
+      if (!t) return;
+      t.name = name.value.slice(0, 18);
+      this.renderPreview();
+      // the embosser: every letter is punched into the tag
+      if (e.inputType?.startsWith("insert")) { sfx.emboss(); haptic("emboss"); this.previewSpring.impulse(18); }
+    });
+    name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); this.showList(); } });
+    dlg.addEventListener("cancel", (e) => { if (this.nav.dataset.page === "detail") { e.preventDefault(); this.showList(); } });
+    this.setupReorder();
   }
 
   openEditor(addNew = false) {
     this.draft = tags.map((t) => ({ ...t }));
-    if (addNew) this.draft.push({ id: `t${Date.now().toString(36)}`, name: "New tag", color: TAG_COLORS[this.draft.length % TAG_COLORS.length] });
+    this.nav.dataset.page = "list";
+    this.renderList();
     this.dlg.showModal();
-    this.renderEditor(addNew ? this.draft.length - 1 : null);
+    if (addNew) this.dlg.querySelector('[data-act="add"]').click();
   }
 
-  renderEditor(focusIndex = null) {
-    const list = this.draft;
-    this.dlg.querySelector(".tag-edit-list").innerHTML = list.map((t, i) => `
-      <li class="tag-edit" style="--tag:${esc(t.color)}">
-        <div class="tag-edit-row">
-          <span class="tag-dot" aria-hidden="true"></span>
-          <label class="tape" style="--tag:${esc(t.color)}"><input type="text" value="${esc(t.name)}" data-i="${i}" maxlength="18" aria-label="Tag name" autocapitalize="characters" spellcheck="false"></label>
-          <button class="icon-btn" data-act="up" data-i="${i}" aria-label="Move up" ${i === 0 ? "disabled" : ""}>↑</button>
-          <button class="icon-btn" data-act="down" data-i="${i}" aria-label="Move down" ${i === list.length - 1 ? "disabled" : ""}>↓</button>
-          <button class="icon-btn danger" data-act="del" data-i="${i}" aria-label="Delete tag">×</button>
-        </div>
-        <div class="swatches">${TAG_COLORS.map((c) => `<button class="swatch${c === t.color ? " is-on" : ""}" style="--c:${c}" data-act="color" data-i="${i}" data-color="${c}" aria-label="Colour ${c}"></button>`).join("")}</div>
+  renderList() {
+    this.dlg.querySelector(".tag-edit-list").innerHTML = this.draft.map((t, i) => `
+      <li class="tag-row" data-i="${i}" style="--tag:${esc(t.color)}">
+        <span class="tag-mini" aria-hidden="true">${tagSVG(t.name || "New", t.color, `mini${i}`)}</span>
+        <button class="tag-row-main" aria-label="Edit ${esc(t.name || "tag")}"><span class="tag-row-name">${esc(t.name || "Untitled")}</span>
+          <svg class="chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 6.5 7l-5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="drag-handle" role="button" tabindex="0" aria-label="Reorder ${esc(t.name || "tag")}"><svg viewBox="0 0 18 12" aria-hidden="true"><path d="M1 1h16M1 6h16M1 11h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
       </li>`).join("");
-    if (focusIndex != null) {
-      const input = this.dlg.querySelector(`input[data-i="${focusIndex}"]`);
-      input?.focus(); input?.select();
-    }
+  }
+
+  showList() {
+    const t = this.draft[this.editing];
+    if (t && !t.name.trim()) t.name = "Untitled";
+    this.dlg.querySelector("#tag-name").blur();
+    this.renderList();
+    this.nav.dataset.page = "list";
+  }
+
+  openDetail(i, isNew = false) {
+    this.editing = i;
+    const t = this.draft[i];
+    this.dlg.querySelector("#tag-detail-title").textContent = isNew ? "New tag" : "Edit tag";
+    const name = this.dlg.querySelector("#tag-name");
+    name.value = t.name;
+    this.dlg.querySelector("#tag-swatches").innerHTML = TAG_COLORS.map((c) => `
+      <button class="swatch${c === t.color ? " is-on" : ""}" style="--c:${c}" data-color="${c}" role="radio" aria-checked="${c === t.color}" aria-label="Colour ${c}">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`).join("");
+    this.renderPreview();
+    this.nav.dataset.page = "detail";
+    sfx.tap();
+    this.previewSpring.impulse(60);
+    if (isNew) setTimeout(() => name.focus(), 380);
+  }
+
+  renderPreview() {
+    const t = this.draft[this.editing];
+    this.dlg.querySelector("#tag-preview").innerHTML = tagSVG(t.name || "New tag", t.color, "pv");
+  }
+
+  setColor(c) {
+    const t = this.draft[this.editing];
+    if (!t || t.color === c) return;
+    t.color = c;
+    this.dlg.querySelectorAll("#tag-swatches .swatch").forEach((b) => {
+      const on = b.dataset.color === c;
+      b.classList.toggle("is-on", on);
+      b.setAttribute("aria-checked", on);
+    });
+    this.renderPreview();
+    this.previewSpring.impulse(90);
+    sfx.snap();
+    haptic("tagSnap");
+  }
+
+  /** Drag a row by its handle; the others make room, and it drops into place. */
+  setupReorder() {
+    const list = this.dlg.querySelector(".tag-edit-list");
+    let drag = null;
+    list.addEventListener("pointerdown", (e) => {
+      const h = e.target.closest(".drag-handle");
+      if (!h) return;
+      e.preventDefault();
+      const row = h.closest(".tag-row");
+      const rows = [...list.children];
+      drag = { row, rows, from: rows.indexOf(row), y0: e.clientY, h: row.offsetHeight, to: rows.indexOf(row) };
+      row.classList.add("is-lifted");
+      h.setPointerCapture(e.pointerId);
+      haptic("tap");
+    });
+    list.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const dy = e.clientY - drag.y0;
+      drag.row.style.transform = `translateY(${dy}px) scale(1.02)`;
+      const to = Math.max(0, Math.min(drag.rows.length - 1, drag.from + Math.round(dy / drag.h)));
+      if (to !== drag.to) { drag.to = to; sfx.tick(false); haptic("dialDetent"); }
+      drag.rows.forEach((r, i) => {
+        if (r === drag.row) return;
+        const shift = drag.from < to ? (i > drag.from && i <= to ? -1 : 0) : (i < drag.from && i >= to ? 1 : 0);
+        r.style.transform = shift ? `translateY(${shift * drag.h}px)` : "";
+      });
+    });
+    const end = () => {
+      if (!drag) return;
+      const { from, to } = drag;
+      drag.rows.forEach((r) => { r.style.transform = ""; r.classList.remove("is-lifted"); });
+      drag = null;
+      if (from !== to) {
+        const [t] = this.draft.splice(from, 1);
+        this.draft.splice(to, 0, t);
+      }
+      this.renderList();
+    };
+    list.addEventListener("pointerup", end);
+    list.addEventListener("pointercancel", end);
   }
 
   async saveEditor() {
@@ -339,6 +428,7 @@ export class CheckIn {
     this.closeEditor();
     this.renderTags();
     this.renderInfo();
+    sfx.tap();
   }
 
   closeEditor() { this.dlg.close(); }

@@ -394,14 +394,32 @@
   </dialog>
 
   <!-- ===== tag editor ===== -->
-  <dialog class="sheet-dialog" id="tags-dialog" aria-label="Edit purpose tags">
-    <div class="dialog-body">
-      <header class="dialog-head"><h2>Purpose tags</h2><button class="icon-btn round" data-act="cancel" aria-label="Cancel">×</button></header>
-      <ul class="tag-edit-list"></ul>
-      <div class="dialog-actions">
-        <button class="btn ghost" data-act="add">Add tag</button>
-        <button class="btn primary" data-act="done">Save</button>
-      </div>
+  <dialog class="sheet-dialog tags-sheet" id="tags-dialog" aria-label="Edit purpose tags">
+    <div class="tags-nav" data-page="list">
+      <section class="tags-page" aria-label="All tags">
+        <header class="nav-bar">
+          <button class="nav-btn" data-act="cancel">Cancel</button>
+          <h2>Purpose tags</h2>
+          <button class="nav-btn strong" data-act="done">Done</button>
+        </header>
+        <ul class="inset-list tag-edit-list"></ul>
+        <ul class="inset-list"><li><button class="row-btn add-row" data-act="add"><span class="add-plus" aria-hidden="true"></span>New tag</button></li></ul>
+        <p class="list-foot">Drag the handle to reorder. Tap a tag to rename or recolour it.</p>
+      </section>
+      <section class="tags-page" aria-label="Edit tag">
+        <header class="nav-bar">
+          <button class="nav-btn back" data-act="back"><svg viewBox="0 0 12 20" aria-hidden="true"><path d="M10 2 2 10l8 8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Tags</button>
+          <h2 id="tag-detail-title">Edit tag</h2>
+          <span class="nav-btn" aria-hidden="true"></span>
+        </header>
+        <div class="tag-preview"><div class="tag-preview-swing" id="tag-preview"></div></div>
+        <ul class="inset-list">
+          <li class="field-row"><label for="tag-name">Name</label><input id="tag-name" type="text" maxlength="18" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="done"></li>
+        </ul>
+        <p class="list-label">Colour</p>
+        <div class="swatches" id="tag-swatches" role="radiogroup" aria-label="Tag colour"></div>
+        <ul class="inset-list"><li><button class="row-btn danger" data-act="del">Delete tag</button></li></ul>
+      </section>
     </div>
   </dialog>
 </body>
